@@ -1,0 +1,212 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Arena Vila Nova - planned HTTP webhook and regional Bedrock runtime
+# Planning only. SPEC-05 handler and approved artifact/secret must exist before deploy.
+# Package only src/ and data/base.json plus runtime dependencies, never the workspace.
+Parameters:
+  ArtifactBucket:
+    Type: String
+    Description: Existing private S3 artifact bucket in the stack region
+    AllowedPattern: '[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]'
+  ArtifactKey:
+    Type: String
+    Description: Reviewed zip containing src/webhook.py and data/base.json
+    AllowedPattern: '[A-Za-z0-9/_.-]+\.zip'
+  BedrockModelId:
+    Type: String
+    Default: mistral.ministral-3-3b-instruct
+    AllowedValues: [mistral.ministral-3-3b-instruct]
+  WebhookSecretParameter:
+    Type: String
+    Default: /arena-vila-nova/webhook-secret
+    Description: Name only of an existing standard SecureString using aws/ssm
+    AllowedPattern: '/arena-vila-nova/[A-Za-z0-9/_-]+'
+  ReservedConcurrency:
+    Type: Number
+    Default: -1
+    AllowedValues: [-1, 0, 2]
+    Description: '-1 uses account quota; 0 stops execution; 2 requires sufficient unreserved quota'
+  AlertTopicArn:
+    Type: String
+    Default: ''
+    Description: Optional existing same-region SNS topic with CloudWatch publish permission
+    AllowedPattern: '^$|arn:aws:sns:sa-east-1:[0-9]{12}:[A-Za-z0-9_-]+'
+Rules:
+  SaoPauloOnly:
+    Assertions:
+      - Assert: !Equals [!Ref 'AWS::Region', sa-east-1]
+        AssertDescription: Only sa-east-1 is approved for this plan
+Conditions:
+  HasReservedConcurrency: !Not [!Equals [!Ref ReservedConcurrency, -1]]
+  HasAlertTopic: !Not [!Equals [!Ref AlertTopicArn, '']]
+Resources:
+  # Explicit retention and deletion avoid orphaned logs and indefinite data storage.
+  RuntimeLogs:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${AWS::StackName}-bot'
+      RetentionInDays: 3
+      Tags: [{Key: Project, Value: arena-vila-nova}]
+  ApiLogs:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      LogGroupName: !Sub '/arena-vila-nova/${AWS::StackName}/http'
+      RetentionInDays: 3
+      Tags: [{Key: Project, Value: arena-vila-nova}]
+  RuntimeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: lambda.amazonaws.com}
+            Action: sts:AssumeRole
+      # No discovery, tool invocation, guardrails, bearer tokens or model wildcards.
+      Policies:
+        - PolicyName: arena-vila-nova-runtime
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [bedrock:InvokeModel]
+                Resource: !Sub 'arn:${AWS::Partition}:bedrock:${AWS::Region}::foundation-model/${BedrockModelId}'
+              - Effect: Allow
+                Action: [ssm:GetParameter]
+                Resource: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${WebhookSecretParameter}'
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${AWS::StackName}-bot:log-stream:*'
+      Tags: [{Key: Project, Value: arena-vila-nova}]
+  BotFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-bot'
+      Description: Arena informational webhook; requires SPEC-05 handler
+      Runtime: python3.12
+      Architectures: [x86_64]
+      Handler: src.webhook.lambda_handler
+      Code: {S3Bucket: !Ref ArtifactBucket, S3Key: !Ref ArtifactKey}
+      Role: !GetAtt RuntimeRole.Arn
+      MemorySize: 512
+      Timeout: 25
+      # Current account quota is 10: positive reservation cannot be assumed valid.
+      ReservedConcurrentExecutions: !If [HasReservedConcurrency, !Ref ReservedConcurrency, !Ref 'AWS::NoValue']
+      LoggingConfig:
+        LogFormat: JSON
+        SystemLogLevel: WARN
+        ApplicationLogLevel: INFO
+        LogGroup: !Ref RuntimeLogs
+      Environment:
+        Variables:
+          BEDROCK_MODEL_ID: !Ref BedrockModelId
+          BEDROCK_MAX_TOKENS: '250'
+          BEDROCK_CONNECT_TIMEOUT: '3'
+          BEDROCK_READ_TIMEOUT: '12'
+          RAG_TOP_K: '3'
+          RAG_THRESHOLD: '0.12'
+          WEBHOOK_SECRET_PARAMETER: !Ref WebhookSecretParameter
+      Tags: [{Key: Project, Value: arena-vila-nova}]
+  HttpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub '${AWS::StackName}-http'
+      ProtocolType: HTTP
+      DisableExecuteApiEndpoint: false
+      Tags: {Project: arena-vila-nova}
+  WebhookIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt BotFunction.Arn
+      PayloadFormatVersion: '2.0'
+      TimeoutInMillis: 28000
+  WebhookRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: POST /telegram
+      # Telegram cannot use IAM auth: handler MUST check secret before parsing body.
+      AuthorizationType: NONE
+      Target: !Sub 'integrations/${WebhookIntegration}'
+  HttpStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref HttpApi
+      StageName: $default
+      AutoDeploy: true
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 2
+        ThrottlingRateLimit: 0.2
+        DetailedMetricsEnabled: false
+      AccessLogSettings:
+        DestinationArn: !GetAtt ApiLogs.Arn
+        # No IP, chat, headers, body, query string or user text.
+        Format: '{"requestId":"$context.requestId","status":"$context.status","latency":"$context.responseLatency"}'
+      Tags: {Project: arena-vila-nova}
+  ApiInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref BotFunction
+      Principal: apigateway.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !Sub 'arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/$default/POST/telegram'
+  # Baseline metrics only. No SNS topic or subscription is created by this stack.
+  ErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${AWS::StackName}-errors'
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions: [{Name: FunctionName, Value: !Ref BotFunction}]
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlertTopic, [!Ref AlertTopicArn], !Ref 'AWS::NoValue']
+  ThrottlesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${AWS::StackName}-throttles'
+      Namespace: AWS/Lambda
+      MetricName: Throttles
+      Dimensions: [{Name: FunctionName, Value: !Ref BotFunction}]
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlertTopic, [!Ref AlertTopicArn], !Ref 'AWS::NoValue']
+  DurationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${AWS::StackName}-duration'
+      Namespace: AWS/Lambda
+      MetricName: Duration
+      Dimensions: [{Name: FunctionName, Value: !Ref BotFunction}]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 20000
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlertTopic, [!Ref AlertTopicArn], !Ref 'AWS::NoValue']
+Outputs:
+  WebhookUrl:
+    Value: !Sub 'https://${HttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/telegram'
+  FunctionName:
+    Value: !Ref BotFunction
+  ExecutionRoleArn:
+    Value: !GetAtt RuntimeRole.Arn
+  RuntimeLogGroup:
+    Value: !Ref RuntimeLogs
+  HttpLogGroup:
+    Value: !Ref ApiLogs
