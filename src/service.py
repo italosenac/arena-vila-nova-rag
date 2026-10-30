@@ -6,6 +6,7 @@ from .knowledge import load_base
 from .llm import BedrockGenerator, Generation, Generator
 from .policies import ERROR, NO_DATA, Status, supported_answer, triage
 from .retriever import Retriever
+from .concierge import wants_overview, wants_advice, question_text
 
 
 @dataclass(frozen=True)
@@ -22,6 +23,14 @@ class Assistant:
         self.retriever, self.generator = retriever, generator
 
     def responder(self, question: str) -> Answer:
+        if wants_overview(question):
+            panorama = next((u for u in self.retriever.units if u['fonte'] == '10-atualizacao-da-recepcao.md'
+                             and u['secao'] == 'Panorama da arena'), None)
+            if panorama:
+                return Answer(panorama['texto'], 'RESPONDER', (panorama['id'],), (panorama['fonte'],), 'panorama')
+        if wants_advice(question):
+            return Answer(question_text(())+' Na CLI, responda às opções numeradas do questionário interativo.',
+                          'RESPONDER',stage='questionario')
         decision = triage(question)
         if decision:
             return Answer(decision[1], decision[0], stage="triagem")

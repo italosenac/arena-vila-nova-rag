@@ -10,9 +10,13 @@ from typing import Callable
 
 from .policies import ERROR
 from .service import Assistant, build_service
+from .concierge import (QUESTIONS, decode_choice, keyboard, question_text,
+                        recommendation_question, wants_advice)
 
 HELP = ("Sou o assistente da Arena Vila Nova. Pergunte sobre horários, preços e regras. "
         "Não faço reservas nem cancelamentos. Não envie dados pessoais, cartão ou senhas. "
+        "Use /informe para um panorama da arena e /aconselhe para escolher uma pelada "
+        "com cinco perguntas sobre suas preferências. Também converso sobre esportes e organização do grupo. "
         "Use /ajuda para ver esta orientação.")
 MAX_BODY = 16384
 
@@ -118,6 +122,35 @@ def handle_event(event: dict, *, secret_provider: Callable[[], str],
         update = json.loads(body, object_pairs_hook=unique_object)
         if not isinstance(update, dict) or type(update.get("update_id")) is not int:
             return response(400)
+        if 'callback_query' in update:
+            callback = update['callback_query']
+            if not isinstance(callback,dict):
+                return response(400)
+            message = callback.get('message',{})
+            chat = message.get('chat',{})
+            chat_id, message_id = chat.get('id'),message.get('message_id')
+            sender = callback.get('from',{})
+            if chat.get('type') != 'private' or sender.get('is_bot'):
+                return response(200)
+            if (type(chat_id) is not int or chat_id <= 0 or type(message_id) is not int
+                    or message_id <= 0 or type(sender.get('id')) is not int or sender['id'] != chat_id):
+                return response(400)
+            try:
+                choices = decode_choice(callback.get('data'),chat_id,expected)
+            except ValueError:
+                return response(200,{'method':'sendMessage','chat_id':chat_id,
+                    'text':'Vamos bilolar de novo: essa opção expirou ou é inválida. Use /aconselhe para recomeçar.'})
+            if len(choices) < len(QUESTIONS):
+                return response(200,{'method':'editMessageText','chat_id':chat_id,'message_id':message_id,
+                    'text':question_text(choices),'reply_markup':keyboard(choices,chat_id,expected)})
+            try:
+                answer = service_factory().responder(recommendation_question(choices)).text
+            except Exception:
+                answer = ERROR
+            profile = ' / '.join(options[c] for (_,options),c in zip(QUESTIONS,choices))
+            return response(200,{'method':'editMessageText','chat_id':chat_id,'message_id':message_id,
+                'text':present_answer('Seu perfil esportivo: '+profile+'.\n'+answer),
+                'reply_markup':{'inline_keyboard':[]},'link_preview_options':{'is_disabled':True}})
         message = update.get("message")
         if message is None:
             return response(200)
@@ -134,9 +167,12 @@ def handle_event(event: dict, *, secret_provider: Callable[[], str],
             return response(400)
         if text is None:
             answer = "Envie uma pergunta em texto, sem documentos ou dados pessoais."
+        elif wants_advice(text):
+            return response(200,{'method':'sendMessage','chat_id':chat_id,'text':question_text(()),
+                                 'reply_markup':keyboard((),chat_id,expected)})
         elif text.strip().split(" ",1)[0].split("@",1)[0] in {"/start","/ajuda","/help"}:
             answer = HELP
-        elif text.startswith("/"):
+        elif text.startswith("/") and text.strip() != '/informe':
             answer = "Use /ajuda ou envie uma pergunta sobre a Arena Vila Nova."
         else:
             try:

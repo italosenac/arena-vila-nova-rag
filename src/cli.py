@@ -5,6 +5,7 @@ from collections.abc import Callable
 
 from .policies import triage
 from .service import Assistant, build_service
+from .concierge import QUESTIONS, recommendation_question, wants_advice
 
 
 def main(argv: list[str] | None = None, *, factory: Callable[[], Assistant] = build_service) -> int:
@@ -50,6 +51,21 @@ def main(argv: list[str] | None = None, *, factory: Callable[[], Assistant] = bu
             if question.casefold() == "sair":
                 return 0
             if question:
+                if wants_advice(question):
+                    choices = []
+                    for prompt,options in QUESTIONS:
+                        print(prompt)
+                        for index, option in enumerate(options,1):
+                            print(f'{index}. {option}')
+                        value = input('Opção (1–5; sair encerra): ').strip()
+                        if value.casefold() == 'sair':
+                            return 0
+                        while value not in {'1','2','3','4','5'}:
+                            value = input('Escolha 1, 2, 3, 4 ou 5: ').strip()
+                            if value.casefold() == 'sair':
+                                return 0
+                        choices.append(int(value)-1)
+                    question = recommendation_question(tuple(choices))
                 respond(question)
     except (EOFError, KeyboardInterrupt):
         print()

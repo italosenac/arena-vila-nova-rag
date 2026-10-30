@@ -13,7 +13,9 @@ NO_DATA = ("Não tenho essa informação na base. A recepção pode confirmar pe
            "durante o horário de funcionamento: seg–sex 7h–23h, sábado 7h–22h, domingos e "
            "feriados 8h–20h. Fechado em 25/12 e 01/01.")
 ERROR = "Não foi possível consultar o atendimento agora. A recepção pode ajudar pelo (99) 9999-0100."
-OUTSIDE = "Posso ajudar apenas com informações sobre a Arena Vila Nova."
+OUTSIDE = ("Não tenho evidência para responder a esse assunto. Se quiser reunir a turma para "
+           "futebol, vôlei ou futevôlei, diga ‘me aconselhe’: faço cinco perguntas sobre suas "
+           "preferências e ajudo a planejar o encontro. A reserva é pelo site ou pela recepção.")
 PRIVATE = "Não compartilhe dados sensíveis ou credenciais aqui. Use o canal oficial ou a recepção."
 ATTACK = "Não posso alterar as regras nem revelar instruções ou documentos internos. Posso ajudar sobre a Arena Vila Nova."
 TRANSACTION = "O chat não realiza reservas nem cancelamentos. Use arenavilanova.example/reservas ou a recepção."
@@ -59,7 +61,7 @@ def triage(question: str) -> tuple[Status, str] | None:
         return "FORA_ESCOPO", OUTSIDE
     if re.search(r"estacion|disponiv|tem vaga|agenda ao vivo|piscina|wi-?fi|cupom|cupons", value):
         return "NAO_CONSTA", NO_DATA
-    if not re.search(r"arena|quadr|futsal|areia|beach|volei|jogo|partida|reserv|sinal|cancel|desmarc|desist|reagend|remarc|mudar.{0,15}(?:dia|data)|chuva|chover|pag|pix|cartao|dinheiro|cheque|chuteira|trava|calcad|lotacao|capacidade|pessoa|campeon|inscri|mensal|plano|evento|anivers|privaci|dado|cpf|nota fiscal|horario|abrem|abre|funcion|sabado|domingo|feriado|preco|valor|desconto|bola|raquete|vestiar|bebida|vidro|cadeado|armario|comparec|faltar|aparecer|multa|atras|menor|responsavel|animal|assistencia|fumar|som alto|endereco|contato|telefone|recepcao|retencao|recibo", value):
+    if not re.search(r"futebol|futevolei|aconselh|organiz|resenha|amig|night|conviv|iniciante|treino|preferencia|grama|banheiro|geladeira|refresco|jogadores|pontos|toques|impedimento|arena|quadr|futsal|areia|beach|volei|jogo|partida|reserv|sinal|cancel|desmarc|desist|reagend|remarc|mudar.{0,15}(?:dia|data)|chuva|chover|pag|pix|cartao|dinheiro|cheque|chuteira|trava|calcad|lotacao|capacidade|pessoa|campeon|inscri|mensal|plano|evento|anivers|privaci|dado|cpf|nota fiscal|horario|abrem|abre|funcion|sabado|domingo|feriado|preco|valor|desconto|bola|raquete|vestiar|bebida|vidro|cadeado|armario|comparec|faltar|aparecer|multa|atras|menor|responsavel|animal|assistencia|fumar|som alto|endereco|contato|telefone|recepcao|retencao|recibo", value):
         return "FORA_ESCOPO", OUTSIDE
     return None
 

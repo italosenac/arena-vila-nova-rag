@@ -13,8 +13,8 @@ sys.path.insert(0, str(ROOT))
 
 
 def corpus():
-    from src.knowledge import load_base
-    return load_base(ROOT / "data" / "base.json")
+    from src.knowledge import load_base, SOURCES
+    return [u for u in load_base(ROOT / "data" / "base.json") if u['fonte'] in SOURCES]
 
 
 def unit(source, section):

@@ -143,8 +143,8 @@ Resources:
       StageName: $default
       AutoDeploy: true
       DefaultRouteSettings:
-        ThrottlingBurstLimit: 2
-        ThrottlingRateLimit: 0.2
+        ThrottlingBurstLimit: 5
+        ThrottlingRateLimit: 1
         DetailedMetricsEnabled: false
       AccessLogSettings:
         DestinationArn: !GetAtt ApiLogs.Arn

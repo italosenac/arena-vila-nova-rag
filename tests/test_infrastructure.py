@@ -57,7 +57,7 @@ def test_timeouts_rate_and_quota_do_not_assume_positive_reservation():
     assert TEMPLATE["Parameters"]["ReservedConcurrency"]["Default"] == -1
     assert function["ReservedConcurrentExecutions"]["If"][2] == {"Ref": "AWS::NoValue"}
     limits = RESOURCES["HttpStage"]["Properties"]["DefaultRouteSettings"]
-    assert limits["ThrottlingBurstLimit"] == 2 and limits["ThrottlingRateLimit"] == 0.2
+    assert limits["ThrottlingBurstLimit"] == 5 and limits["ThrottlingRateLimit"] == 1
 
 
 def test_only_planned_services_no_implicit_artifact_or_secret_creation():

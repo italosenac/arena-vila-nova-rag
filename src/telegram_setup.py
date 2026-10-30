@@ -36,14 +36,16 @@ def configure(*, token: str, url: str, secret: str, call=telegram_call) -> dict:
     me=call(token,"getMe",{})
     if not isinstance(me,dict) or not me.get("is_bot") or not re.fullmatch(r"[A-Za-z0-9_]+",me.get("username","")):
         raise TelegramFailure("Identidade do bot não confirmada")
-    if call(token,"setWebhook",{"url":url,"secret_token":secret,"allowed_updates":["message"],
+    if call(token,"setWebhook",{"url":url,"secret_token":secret,"allowed_updates":["message","callback_query"],
                                   "max_connections":1,"drop_pending_updates":False}) is not True:
         raise TelegramFailure("Registro do webhook não confirmado")
     info=call(token,"getWebhookInfo",{})
     if info.get("url") != url:
         raise TelegramFailure("Endpoint do webhook não corresponde ao implantado")
     call(token,"setMyCommands",{"commands":[{"command":"start","description":"Iniciar atendimento"},
-                                           {"command":"ajuda","description":"Orientações e privacidade"}]})
+                                           {"command":"ajuda","description":"Orientações e privacidade"},
+                                           {"command":"informe","description":"Panorama da Arena Vila Nova"},
+                                           {"command":"aconselhe","description":"Questionário e sugestão de pelada"}]})
     return {"username":me["username"],"url":"https://t.me/"+me["username"],"webhook_url":info["url"],
             "pending_update_count":info.get("pending_update_count"),"last_error_date":info.get("last_error_date"),
             "verified":True}
