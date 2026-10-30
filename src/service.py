@@ -1,10 +1,11 @@
 """Único serviço de resposta compartilhável entre CLI e futuro Telegram."""
 
 from dataclasses import dataclass
+import re
 from .config import Settings
-from .knowledge import load_base
+from .knowledge import load_base, normalize
 from .llm import BedrockGenerator, Generation, Generator
-from .policies import ERROR, NO_DATA, Status, supported_answer, triage
+from .policies import ERROR, Status, supported_answer, triage, forwarding
 from .retriever import Retriever
 from .concierge import wants_overview, wants_advice, question_text
 from .language import question_parts
@@ -40,7 +41,7 @@ class Assistant:
         except Exception:
             return Answer(ERROR, "ERRO", stage="busca")
         if not hits:
-            return Answer(NO_DATA, "NAO_CONSTA", stage="busca")
+            return Answer(forwarding(question), "NAO_CONSTA", stage="busca")
         context = tuple(hit.unit for hit in hits)
         return self._generate(question,context)
 
@@ -50,7 +51,7 @@ class Assistant:
         unit = next((u for u in self.retriever.units if u['id']==source_id
                      and u['fonte'] in {*SOURCES,OWNER_SOURCE}),None)
         if unit is None:
-            return Answer(NO_DATA,'NAO_CONSTA',stage='busca')
+            return Answer(forwarding(''),'NAO_CONSTA',stage='busca')
         if unit['secao']=='Panorama da arena':
             return self.responder('/informe')
         context=[unit]
@@ -70,13 +71,16 @@ class Assistant:
         except Exception:
             # Limite da aplicação: fallback acionável, sem detalhes ou payloads.
             return Answer(ERROR, "ERRO", stage="geracao")
-        if not isinstance(result, Generation) or result.status != "RESPONDER":
-            return Answer(NO_DATA, "NAO_CONSTA", stage="validacao")
+        if not isinstance(result, Generation) or result.status != "RESPONDER" or not isinstance(result.answer,str):
+            return Answer(forwarding(question), "NAO_CONSTA", stage="validacao")
+        if re.search(r'base de (?:conhecimento|dados)|\b(?:na|nossa|minha) base\b|nao (?:tenho|temos|encontrei|localizei).{0,60}(?:inform|base)',
+                     normalize(result.answer)):
+            return Answer(forwarding(question),'NAO_CONSTA',stage='apresentacao')
         available = {unit["id"]: unit for unit in context}
         ids = result.source_ids
         if (not isinstance(ids, tuple) or not ids or not all(isinstance(value, str) for value in ids)
                 or len(ids) != len(set(ids)) or any(value not in available for value in ids)):
-            return Answer(NO_DATA, "NAO_CONSTA", stage="validacao")
+            return Answer(forwarding(question), "NAO_CONSTA", stage="validacao")
         cited = tuple(available[value] for value in ids)
         if check_coverage and len(question_parts(question))>1:
             for part in question_parts(question):
@@ -84,9 +88,9 @@ class Assistant:
                 relevant={h.unit['id'] for h in hits if h.score>=hits[0].score*0.8
                           and h.unit['id'] in available} if hits else set()
                 if not relevant or not relevant.intersection(ids):
-                    return Answer(NO_DATA,'NAO_CONSTA',stage='cobertura')
+                    return Answer(forwarding(question),'NAO_CONSTA',stage='cobertura')
         if not supported_answer(result.answer, cited, question=question):
-            return Answer(NO_DATA, "NAO_CONSTA", stage="validacao")
+            return Answer(forwarding(question), "NAO_CONSTA", stage="validacao")
         return Answer(result.answer, "RESPONDER", ids,
                       tuple(dict.fromkeys(unit["fonte"] for unit in cited)))
 

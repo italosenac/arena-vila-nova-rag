@@ -7,23 +7,26 @@ import os
 import re
 import time
 from typing import Callable
+from datetime import datetime
+from .tone import greet
 
 from .policies import ERROR
 from .service import Assistant, build_service
 from .concierge import (QUESTIONS, decode_choice, keyboard, question_text,
                         recommendation_question, wants_advice, wants_overview)
-from .topics import topic_buttons, topic_prompt, decode_topic, sections, wants_topics
+from .topics import topic_buttons, topic_prompt, decode_topic, sections, wants_topics, related_buttons
+from .flows import route_intent,flow_view,decode_flow
 
 HELP = ("Sou o assistente da Arena Vila Nova. Pergunte sobre horários, preços e regras. "
         "Não faço reservas nem cancelamentos. Não envie dados pessoais, cartão ou senhas. "
         "Use /informe para um panorama da arena e /aconselhe para escolher uma pelada "
         "com cinco perguntas sobre suas preferências. Também converso sobre esportes e organização do grupo. "
-        "Use /assuntos ou diga ‘me ajude’ para perguntas guiadas sobre toda a base. "
+        "Use /assuntos ou diga ‘me ajude’ para perguntas guiadas sobre toda a arena. "
         "Use /ajuda para ver esta orientação.")
 MAX_BODY = 16384
 
 
-def present_answer(text: str) -> str:
+def present_answer(text: str, *, now: datetime | None = None) -> str:
     """Tom solicitado para o Telegram, aplicado após a validação factual."""
     openings = (
         "Você bilola mais que bola em mil rachões: ",
@@ -42,7 +45,7 @@ def present_answer(text: str) -> str:
         "No aquecimento, bilolamos como se a final fosse hoje: ",
     )
     choice = hashlib.sha256(text.encode("utf-8")).digest()[0] % len(openings)
-    return openings[choice] + text
+    return greet(openings[choice] + text,now=now)
 
 
 class ParameterSecret:
@@ -73,6 +76,8 @@ class ParameterSecret:
 
 
 def response(code: int, body: dict | None = None) -> dict:
+    if body and body.get('method') in {'sendMessage','editMessageText'} and isinstance(body.get('text'),str):
+        body = {**body,'text':greet(body['text'])}
     return {"statusCode":code, "headers":{"content-type":"application/json; charset=utf-8", "cache-control":"no-store"},
             "body":json.dumps(body or {}, ensure_ascii=False)}
 
@@ -138,6 +143,11 @@ def handle_event(event: dict, *, secret_provider: Callable[[], str],
                     or message_id <= 0 or type(sender.get('id')) is not int or sender['id'] != chat_id):
                 return response(400)
             try:
+                if isinstance(callback.get('data'),str) and callback['data'].startswith('f:'):
+                    action=decode_flow(callback['data'],chat_id,expected)
+                    view=flow_view(action,chat_id,expected,service_factory=service_factory)
+                    return response(200,{'method':'editMessageText','chat_id':chat_id,'message_id':message_id,
+                        **view,'link_preview_options':{'is_disabled':True}})
                 if isinstance(callback.get('data'),str) and callback['data'].startswith('n:'):
                     topic,section=decode_topic(callback['data'],chat_id,expected)
                     if section==0:
@@ -146,11 +156,15 @@ def handle_event(event: dict, *, secret_provider: Callable[[], str],
                     else:
                         selected=sections(topic)[section-1]
                         try:
-                            answer=present_answer(service_factory().explicar(selected['unit']['id']).text)
+                            result=service_factory().explicar(selected['unit']['id'])
+                            answer=present_answer(result.text)
+                            ids=result.source_ids or (selected['unit']['id'],)
                         except Exception:
                             answer=present_answer(ERROR)
-                        answer+='\n\nQuer entender outro ponto? Escolha abaixo ou use /aconselhe para planejar seu jogo.'
-                        markup=topic_buttons(None,chat_id,expected)
+                            ids=(selected['unit']['id'],)
+                        markup=related_buttons(ids,chat_id,expected) or {'inline_keyboard':[]}
+                        if markup['inline_keyboard']:
+                            answer+='\n\nSe quiser aprofundar este assunto:'
                     return response(200,{'method':'editMessageText','chat_id':chat_id,'message_id':message_id,
                         'text':answer,'reply_markup':markup,'link_preview_options':{'is_disabled':True}})
                 choices = decode_choice(callback.get('data'),chat_id,expected)
@@ -182,6 +196,12 @@ def handle_event(event: dict, *, secret_provider: Callable[[], str],
         text = message.get("text")
         if text is not None and not isinstance(text, str):
             return response(400)
+        result = None
+        action=route_intent(text) if isinstance(text,str) else None
+        if action:
+            view=flow_view(action,chat_id,expected,service_factory=service_factory)
+            return response(200,{'method':'sendMessage','chat_id':chat_id,**view,
+                'link_preview_options':{'is_disabled':True}})
         if text is None:
             answer = "Envie uma pergunta em texto, sem documentos ou dados pessoais."
         elif wants_advice(text):
@@ -196,13 +216,18 @@ def handle_event(event: dict, *, secret_provider: Callable[[], str],
             answer = "Use /ajuda ou envie uma pergunta sobre a Arena Vila Nova."
         else:
             try:
-                answer = service_factory().responder(text).text
+                result = service_factory().responder(text)
+                answer = result.text
             except Exception:
                 answer = ERROR
         payload={"method":"sendMessage","chat_id":chat_id,"text":present_answer(answer),
                  "link_preview_options":{"is_disabled":True}}
         if isinstance(text,str) and (text.strip().split(' ',1)[0].split('@',1)[0] in {'/start','/ajuda','/help'} or wants_overview(text)):
             payload['reply_markup']=topic_buttons(None,chat_id,expected)
+        elif result is not None and result.status=='RESPONDER':
+            markup=related_buttons(result.source_ids,chat_id,expected)
+            if markup:
+                payload['reply_markup']=markup
         return response(200,payload)
     except (ValueError, TypeError, AttributeError, KeyError, UnicodeError, RecursionError):
         return response(400)

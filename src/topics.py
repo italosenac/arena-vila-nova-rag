@@ -71,3 +71,42 @@ def decode_topic(data: str, chat_id: int, secret: str, *, now=None) -> tuple[int
     if not 0 <= section <= len(sections(topic)):
         raise ValueError('Seção inválida')
     return topic,section
+
+
+def related_buttons(source_ids,chat_id: int,secret: str) -> dict:
+    """No máximo duas perguntas próximas, excluindo o conteúdo já citado."""
+    if not isinstance(source_ids,(tuple,list)) or not all(isinstance(v,str) for v in source_ids):
+        return {}
+    answered=set(source_ids)
+    rows=catalogue()
+    current=next((q['unit'] for q in rows if q['unit']['id'] in answered),None)
+    if current is None:
+        return {}
+    relations={
+        '03-reservas-e-cancelamento:sinal':('04-pagamento:pagamento-do-sinal','03-reservas-e-cancelamento:como-reservar'),
+        '03-reservas-e-cancelamento:como-reservar':('03-reservas-e-cancelamento:sinal',),
+        '03-reservas-e-cancelamento:cancelamento':('03-reservas-e-cancelamento:reagendamento',),
+        '03-reservas-e-cancelamento:reagendamento':('03-reservas-e-cancelamento:cancelamento',),
+        '05-regras-de-uso:calcados':('05-regras-de-uso:proibicoes',),
+        '02-quadras-e-precos:tabela-de-precos-por-hora':('02-quadras-e-precos:reservas-de-duas-horas','04-pagamento:meios-aceitos'),
+        '02-quadras-e-precos:capacidade':('01-sobre-a-arena:estrutura',),
+        '01-sobre-a-arena:contato':('01-sobre-a-arena:horario-de-funcionamento',),
+        '03-reservas-e-cancelamento:chuva-apenas-quadras-de-areia':('03-reservas-e-cancelamento:reagendamento',),
+        '06-planos-mensalistas:o-que-e':('06-planos-mensalistas:condicoes',),
+        '06-planos-mensalistas:condicoes':('06-planos-mensalistas:cancelamento-do-plano',),
+        '09-privacidade-e-lgpd:dados-que-coletamos':('09-privacidade-e-lgpd:finalidade','09-privacidade-e-lgpd:direitos-do-titular'),
+        '09-privacidade-e-lgpd:finalidade':('09-privacidade-e-lgpd:direitos-do-titular',),
+        '09-privacidade-e-lgpd:retencao':('09-privacidade-e-lgpd:direitos-do-titular',),
+        '10-atualizacao-da-recepcao:nova-reserva-com-antecedencia-minima':('03-reservas-e-cancelamento:sinal',),
+    }
+    preferred=relations.get(current['id'],())
+    candidates=[q['unit'] for q in rows if q['unit']['id'] not in answered
+        and q['unit']['secao']!='Introdução' and q['unit']['id'] in preferred][:2]
+    buttons=[]
+    expiry=int(time.time())+1800
+    for unit in candidates:
+        topic=TOPIC_SOURCES.index(unit['fonte'])
+        section=next(i for i,q in enumerate(sections(topic),1) if q['unit']['id']==unit['id'])
+        payload=f'n:{expiry}:{topic}:{section}'
+        buttons.append([{'text':unit['secao'][:60],'callback_data':payload+':'+_signature(payload,chat_id,secret)}])
+    return {'inline_keyboard':buttons} if buttons else {}

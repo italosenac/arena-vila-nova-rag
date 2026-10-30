@@ -52,7 +52,7 @@ def test_webhook_topic_navigation_selects_exact_evidence():
     service.explicar.return_value=Answer('Use calçado de solado liso no futsal.','RESPONDER')
     event={'rawPath':'/telegram','requestContext':{'http':{'method':'POST'}},
            'headers':{'content-type':'application/json','x-telegram-bot-api-secret-token':secret}}
-    event['body']=json.dumps({'update_id':1,'message':{'chat':{'id':1,'type':'private'},'text':'Me ajude'}})
+    event['body']=json.dumps({'update_id':1,'message':{'chat':{'id':1,'type':'private'},'text':'/assuntos'}})
     def call():
         result=handle_event(event,secret_provider=lambda:secret,service_factory=lambda:service)
         assert result['statusCode']==200
@@ -64,7 +64,7 @@ def test_webhook_topic_navigation_selects_exact_evidence():
             'from':{'id':1},'message':{'message_id':10,'chat':{'id':1,'type':'private'}}}})
         body=call()
     assert 'solado liso' in body['text'] and 'bilola' in body['text']
-    assert len(body['reply_markup']['inline_keyboard'])==10
+    assert len(body['reply_markup']['inline_keyboard'])<=2
     service.explicar.assert_called_once_with('05-regras-de-uso:calcados')
 
 
@@ -93,3 +93,16 @@ def test_factual_validation_accepts_version_metadata_and_privacy_warnings():
     privacy=next(u for u in base if u['secao']=='Atendimento pelo Telegram')
     assert supported_answer('Não envie CPF, dados de cartão nem senhas pelo Telegram.',(privacy,))
     assert not supported_answer('Envie CPF, dados de cartão e senhas pelo Telegram.',(privacy,))
+
+def test_related_options_never_repeat_answered_evidence_or_dump_all_topics():
+    from src.topics import related_buttons,sections
+    ids=('03-reservas-e-cancelamento:sinal',)
+    markup=related_buttons(ids,1,'s'*40)
+    assert 0<len(markup['inline_keyboard'])<=2
+    for row in markup['inline_keyboard']:
+        topic,section=decode_topic(row[0]['callback_data'],1,'s'*40)
+        target=sections(topic)[section-1]['unit']
+        assert target['id'] not in ids
+        assert target['id'] in {'04-pagamento:pagamento-do-sinal','03-reservas-e-cancelamento:como-reservar'}
+    assert related_buttons((),1,'s'*40)=={}
+    assert related_buttons(('10-atualizacao-da-recepcao:futebol-em-grama-sintetica',),1,'s'*40)=={}

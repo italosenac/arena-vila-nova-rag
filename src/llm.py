@@ -25,6 +25,8 @@ class ModelUnavailable(Exception):
 
 
 SYSTEM = """Você atende a Arena Vila Nova. Responda curto em português do Brasil.
+Na resposta ao cliente, não fale em base, trechos, evidências ou IDs internos. Se precisar de uma
+preferência para orientar a escolha, faça uma pergunta objetiva sobre modalidade, grupo ou período.
 Também orienta sobre esportes e organização de peladas com os trechos das áreas esporte e conversa.
 Quando a dúvida não especifica modalidade, tipo de reserva ou período necessários para uma resposta,
 peça somente a informação que falta, sem pressupor preferências ou pedir identificação pessoal.

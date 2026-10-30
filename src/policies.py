@@ -1,6 +1,7 @@
 """Triagem determinística e verificação conservadora da fundamentação."""
 
 import re
+import hashlib
 from decimal import Decimal
 from typing import Literal
 
@@ -10,17 +11,32 @@ from .language import has_arena_concept
 
 
 Status = Literal["RESPONDER", "NAO_CONSTA", "FORA_ESCOPO", "BLOQUEADO", "ERRO"]
-NO_DATA = ("Não tenho essa informação na base. A recepção pode confirmar pelo (99) 9999-0100, "
+NO_DATA = ("A recepção atende pelo (99) 9999-0100, "
            "durante o horário de funcionamento: seg–sex 7h–23h, sábado 7h–22h, domingos e "
            "feriados 8h–20h. Fechado em 25/12 e 01/01.")
 ERROR = "Não foi possível consultar o atendimento agora. A recepção pode ajudar pelo (99) 9999-0100."
-OUTSIDE = ("Não tenho evidência para responder a esse assunto. Se quiser reunir a turma para "
+OUTSIDE = ("Podemos organizar uma próxima jogada. Se quiser reunir a turma para "
            "futebol, vôlei ou futevôlei, diga ‘me aconselhe’: faço cinco perguntas sobre suas "
            "preferências e ajudo a planejar o encontro. A reserva é pelo site ou pela recepção.")
 PRIVATE = "Não compartilhe dados sensíveis ou credenciais aqui. Use o canal oficial ou a recepção."
 ATTACK = "Não posso alterar as regras nem revelar instruções ou documentos internos. Posso ajudar sobre a Arena Vila Nova."
 TRANSACTION = "O chat não realiza reservas nem cancelamentos. Use arenavilanova.example/reservas ou a recepção."
 NUMERIC_SENSITIVE = r"(?<!\d)(?:\d[ .-]?){11}(?!\d)|(?<!\d)(?:\d[ -]?){13,19}(?!\d)"
+
+
+def forwarding(question: str) -> str:
+    value=normalize(question)
+    if re.search(r'estacion',value):
+        lead='Para planejar a chegada, confirme com a recepção se há estacionamento e quais condições se aplicam. '
+    elif re.search(r'disponiv|tem vaga|agenda ao vivo',value):
+        lead='Para consultar uma vaga, indique modalidade, dia e horário no site de reservas ou diretamente à recepção. '
+    else:
+        leads=('Vamos confirmar esse detalhe com a recepção. ',
+               'Para acertar esse detalhe do atendimento, confirme diretamente com a recepção. ',
+               'A confirmação desse ponto deve ser feita com a recepção. ',
+               'Vamos bilolar com planejamento: confirme esse detalhe com a recepção. ')
+        lead=leads[hashlib.sha256(question.encode()).digest()[0]%len(leads)]
+    return lead+NO_DATA
 
 
 def contains_sensitive(text: str) -> bool:
@@ -61,7 +77,7 @@ def triage(question: str) -> tuple[Status, str] | None:
     if re.search(r"previsao|vai chover|tempo amanha|piada|receita|bolo|eleic|votar|remedio|diagnostic|tratamento|aconselhamento (?:medico|juridico)", value):
         return "FORA_ESCOPO", OUTSIDE
     if re.search(r"estacion|disponiv|tem vaga|agenda ao vivo|piscina|wi-?fi|cupom|cupons", value):
-        return "NAO_CONSTA", NO_DATA
+        return "NAO_CONSTA", forwarding(question)
     if not has_arena_concept(question) and not re.search(r"futebol|futevolei|aconselh|organiz|resenha|amig|night|conviv|iniciante|treino|preferencia|grama|banheiro|geladeira|refresco|jogadores|pontos|toques|impedimento|arena|quadr|futsal|areia|beach|volei|jogo|partida|reserv|sinal|cancel|desmarc|desist|reagend|remarc|mudar.{0,15}(?:dia|data)|chuva|chover|pag|pix|cartao|dinheiro|cheque|chuteira|trava|calcad|lotacao|capacidade|pessoa|campeon|inscri|mensal|plano|evento|anivers|privaci|dado|cpf|nota fiscal|horario|abrem|abre|funcion|sabado|domingo|feriado|preco|valor|desconto|bola|raquete|vestiar|bebida|vidro|cadeado|armario|comparec|faltar|aparecer|multa|atras|menor|responsavel|animal|assistencia|fumar|som alto|endereco|contato|telefone|recepcao|retencao|recibo", value):
         return "FORA_ESCOPO", OUTSIDE
     return None
