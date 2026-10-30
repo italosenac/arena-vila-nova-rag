@@ -20,6 +20,15 @@ def test_vague_question_gets_one_relevant_clarification(question):
 def test_complete_question_has_no_questionnaire(question):
     assert clarify(question) is None
 
+@pytest.mark.parametrize('question', ['Obrigado!', 'Valeu', 'Até mais', 'Entendi', 'Ok'])
+def test_social_acknowledgement_never_confirms_operation(question):
+    model=Mock()
+    answer=build_service(generator=model).responder(question)
+    assert answer.status=='RESPONDER' and not answer.source_ids
+    assert 'reserva confirmada' not in answer.text.casefold()
+    assert '?' not in answer.text
+    model.generate.assert_not_called()
+
 def test_buttons_are_authenticated_and_scoped_to_chat():
     data = callback_data('f_early', 1, 'ficticio')
     assert decode_callback(data, 1, 'ficticio') == 'f_early'

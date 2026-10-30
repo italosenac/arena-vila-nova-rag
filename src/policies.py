@@ -62,7 +62,7 @@ def triage(question: str) -> tuple[Status, str] | None:
     if is_transaction(question):
         return "BLOQUEADO", TRANSACTION
     value = normalize(question)
-    if re.fullmatch(r'(?:oi|ola|bom dia|boa tarde|boa noite)[!?. ]*', value):
+    if re.fullmatch(r'(?:oi|ola|bom dia|boa tarde|boa noite|obrigad[oa]|valeu|vlw|tchau|ate mais|ate logo|entendi|certo|ok)[!?. ]*', value):
         return None
     if re.search(r"previsao|vai chover|tempo amanha|piada|receita|bolo|eleic|votar|remedio|diagnostic|tratamento|aconselhamento (?:medico|juridico)", value):
         return "FORA_ESCOPO", OUTSIDE

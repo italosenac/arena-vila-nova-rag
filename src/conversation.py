@@ -62,6 +62,12 @@ def clarify(question: str) -> Guidance | None:
     value = re.sub(r'[?!.,]+$', '', normalize(question).strip())
     if re.fullmatch(r'(?:oi|ola|bom dia|boa tarde|boa noite)', value):
         return Guidance('Olá! Como posso ajudar com a Arena Vila Nova?')
+    if value in {'obrigado', 'obrigada', 'valeu', 'vlw'}:
+        return Guidance('Disponha! Sempre que precisar, pode enviar outra dúvida sobre a arena.')
+    if value in {'tchau', 'ate mais', 'ate logo'}:
+        return Guidance('Até a próxima!')
+    if value in {'entendi', 'certo', 'ok'}:
+        return Guidance('Certo. Pode enviar outra dúvida sobre a arena quando quiser.')
     if value in {'quanto custa', 'qual o preco', 'precos', 'preco', 'valores'}:
         return PAGES['price']
     if value in {'quanto custa o futsal', 'qual o preco do futsal'}:
