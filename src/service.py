@@ -7,6 +7,7 @@ from .llm import BedrockGenerator, Generation, Generator
 from .policies import ERROR, NO_DATA, Status, supported_answer, triage
 from .retriever import Retriever
 from .concierge import wants_overview, wants_advice, question_text
+from .language import question_parts
 
 
 @dataclass(frozen=True)
@@ -61,9 +62,9 @@ class Assistant:
                   "Se algum detalhe não está confirmado, diferencie-o dos fatos conhecidos; não invente esse detalhe.")
         if unit['secao']=='Nova reserva com antecedência mínima':
             question='Qual é a antecedência mínima atual para pedir uma nova reserva e por quais canais? Resuma em palavras próprias.'
-        return self._generate(question,tuple(context))
+        return self._generate(question,tuple(context),check_coverage=False)
 
-    def _generate(self, question: str, context: tuple) -> Answer:
+    def _generate(self, question: str, context: tuple, *, check_coverage: bool = True) -> Answer:
         try:
             result = self.generator.generate(question=question, context=context)
         except Exception:
@@ -77,6 +78,13 @@ class Assistant:
                 or len(ids) != len(set(ids)) or any(value not in available for value in ids)):
             return Answer(NO_DATA, "NAO_CONSTA", stage="validacao")
         cited = tuple(available[value] for value in ids)
+        if check_coverage and len(question_parts(question))>1:
+            for part in question_parts(question):
+                hits=self.retriever.search(part)
+                relevant={h.unit['id'] for h in hits if h.score>=hits[0].score*0.8
+                          and h.unit['id'] in available} if hits else set()
+                if not relevant or not relevant.intersection(ids):
+                    return Answer(NO_DATA,'NAO_CONSTA',stage='cobertura')
         if not supported_answer(result.answer, cited, question=question):
             return Answer(NO_DATA, "NAO_CONSTA", stage="validacao")
         return Answer(result.answer, "RESPONDER", ids,

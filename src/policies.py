@@ -6,6 +6,7 @@ from typing import Literal
 
 from .knowledge import Unit, forbidden_content, normalize
 from .retriever import tokens
+from .language import has_arena_concept
 
 
 Status = Literal["RESPONDER", "NAO_CONSTA", "FORA_ESCOPO", "BLOQUEADO", "ERRO"]
@@ -61,7 +62,7 @@ def triage(question: str) -> tuple[Status, str] | None:
         return "FORA_ESCOPO", OUTSIDE
     if re.search(r"estacion|disponiv|tem vaga|agenda ao vivo|piscina|wi-?fi|cupom|cupons", value):
         return "NAO_CONSTA", NO_DATA
-    if not re.search(r"futebol|futevolei|aconselh|organiz|resenha|amig|night|conviv|iniciante|treino|preferencia|grama|banheiro|geladeira|refresco|jogadores|pontos|toques|impedimento|arena|quadr|futsal|areia|beach|volei|jogo|partida|reserv|sinal|cancel|desmarc|desist|reagend|remarc|mudar.{0,15}(?:dia|data)|chuva|chover|pag|pix|cartao|dinheiro|cheque|chuteira|trava|calcad|lotacao|capacidade|pessoa|campeon|inscri|mensal|plano|evento|anivers|privaci|dado|cpf|nota fiscal|horario|abrem|abre|funcion|sabado|domingo|feriado|preco|valor|desconto|bola|raquete|vestiar|bebida|vidro|cadeado|armario|comparec|faltar|aparecer|multa|atras|menor|responsavel|animal|assistencia|fumar|som alto|endereco|contato|telefone|recepcao|retencao|recibo", value):
+    if not has_arena_concept(question) and not re.search(r"futebol|futevolei|aconselh|organiz|resenha|amig|night|conviv|iniciante|treino|preferencia|grama|banheiro|geladeira|refresco|jogadores|pontos|toques|impedimento|arena|quadr|futsal|areia|beach|volei|jogo|partida|reserv|sinal|cancel|desmarc|desist|reagend|remarc|mudar.{0,15}(?:dia|data)|chuva|chover|pag|pix|cartao|dinheiro|cheque|chuteira|trava|calcad|lotacao|capacidade|pessoa|campeon|inscri|mensal|plano|evento|anivers|privaci|dado|cpf|nota fiscal|horario|abrem|abre|funcion|sabado|domingo|feriado|preco|valor|desconto|bola|raquete|vestiar|bebida|vidro|cadeado|armario|comparec|faltar|aparecer|multa|atras|menor|responsavel|animal|assistencia|fumar|som alto|endereco|contato|telefone|recepcao|retencao|recibo", value):
         return "FORA_ESCOPO", OUTSIDE
     return None
 
@@ -81,9 +82,15 @@ def supported_answer(answer: str, cited: tuple[Unit, ...], *, question: str = ""
                  r"(?:reserva|cancelamento)\s+(?:confirmad|realizad)|reservei|cancelei|"
                  r"(?:cupom|50\s*%)|sinal.{0,30}(?:cinquenta|metade)|"
                  r"(?:cancelamento|cancelar).{0,70}(?:12|2)\s*(?:horas|h\b)|"
-                 r"reagend.{0,35}(?:ilimitad|quantas vezes quiser)|"
-                 r"(?:chuteira.{0,10}trava|vidro).{0,20}(?:permitid|liberad)", value):
+                 r"reagend.{0,35}(?:ilimitad|quantas vezes quiser)", value):
         return False
+    permissions=re.sub(r'\b(?:nao|nunca|jamais)(?:\s+(?:e|sao|sera|serao|esta|estao))?\s+'
+                       r'(?:permitid[oa]s?|liberad[oa]s?)\b','proibido',value)
+    item=r'(?:chuteira.{0,10}trava|vidro)'
+    permission=r'(?:permitid|liberad)\w*'
+    for clause in re.split(r'[.!?;,\n]|\b(?:mas|e|porem|entretanto)\b',permissions):
+        if re.search(item+r'.{0,30}'+permission+'|'+permission+r'.{0,30}'+item,clause):
+            return False
     signal = re.search(r"\bsinal\b.{0,35}?(\d+)\s*%", value)
     if signal and signal[1] != "30":
         return False
@@ -112,6 +119,6 @@ def supported_answer(answer: str, cited: tuple[Unit, ...], *, question: str = ""
         return False
     if any(answer.strip() == unit["texto"].strip() and len(answer) > 300 for unit in cited):
         return False  # Evitar despejar documento/trecho longo como resposta ao cliente.
-    content = re.split(r"fonte[s]?\s*:", value)[0]
+    content = re.split(r"fonte[s]?\s*:", permissions)[0]
     words = set(tokens(content))
     return bool(words) and len(words & set(tokens(evidence))) / len(words) >= 0.4

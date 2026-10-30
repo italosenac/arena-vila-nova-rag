@@ -7,6 +7,7 @@ import re
 from functools import lru_cache
 
 from .knowledge import Unit, normalize, validate_base
+from .language import expand_question, has_arena_concept, question_parts
 
 
 STOP = set("a o as os de da do das dos e ou em no na nos nas para por com um uma que se ao ate qual quais como posso voces me eu meu minha tem quanto dia jogo partida fazer isso".split())
@@ -23,6 +24,7 @@ SYNONYMS = {
     "abrem": "funcionamento", "abre": "funcionamento", "abertura": "funcionamento",
     "sabados": "sabado", "domingos": "domingo", "quadras": "quadra",
     "reservar": "reserva", "reservas": "reserva", "travas": "trava",
+    "chuteiras": "chuteira", "proibidas": "proibido", "proibida": "proibido", "proibidos": "proibido",
 }
 
 
@@ -87,15 +89,27 @@ class Retriever:
             self.word_vocabulary.update(vocabulary)
 
     def search(self, question: str) -> list[Hit]:
+        parts=question_parts(question)
+        if len(parts)==1:
+            return self._rank(question)
+        ranked=[self._rank(part) for part in parts]
+        selected={hits[0].unit['id']:hits[0] for hits in ranked if hits}
+        for hit in sorted((h for hits in ranked for h in hits),key=lambda h:-h.score):
+            if len(selected)>=self.top_k:
+                break
+            selected.setdefault(hit.unit['id'],hit)
+        return list(selected.values())[:self.top_k]
+
+    def _rank(self, question: str) -> list[Hit]:
         value = normalize(question)
-        words = tokens(question)
+        words = tokens(expand_question(question))
         if not set(words) & self.word_vocabulary:
             return []
         hits = []
         monthly = bool(re.search(r"mensal|plano|horario fixo", normalize(question)))
         cancellation = "cancelamento" in words
-        advice = value.startswith('aconselhe um encontro esportivo') or (bool(re.search(r'aconselh|organiz|resenha|amig|night|conviv|iniciante|treino|preferencia', value)) and not bool(re.search(r'preco|pagamento|cancel|sinal|quanto custa',value)))
-        sport = bool(re.search(r'jogadores|jogador|pontos|sets?|toques|impedimento|regra.{0,20}oficia|duracao.{0,20}(?:futebol|futsal)|medidas oficiais', value)) and not bool(re.search(r'arena|preco|custa|capacidade|lotacao|reserva',value))
+        advice = value.startswith('aconselhe um encontro esportivo') or (bool(re.search(r'aconselh|organiz|resenha|amig|night|conviv|iniciante|treino|preferencia', value)) and not has_arena_concept(question) and not bool(re.search(r'preco|pagamento|cancel|sinal|quanto custa|capacidade|lotacao|orcamento|evento|campeonato',value)))
+        sport = bool(re.search(r'\b(?:jogadores?|pontos|sets?|toques|impedimento)\b|regra.{0,20}oficia|duracao.{0,20}(?:futebol|futsal)|medidas oficiais', value)) and not bool(re.search(r'arena|preco|custa|capacidade|lotacao|reserva',value))
         beach = bool(re.search(r'praia|areia|beach', value))
         domain = 'conversa' if advice else 'esporte' if sport else 'arena'
         units,idf,vectors = self.indexes[domain]
