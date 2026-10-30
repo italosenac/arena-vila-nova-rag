@@ -77,7 +77,7 @@ def supported_answer(answer: str, cited: tuple[Unit, ...], *, question: str = ""
     if contains_sensitive(answer) or is_attack(answer):
         return False
     value = normalize(answer)
-    if re.search(r"(?:envie|informe|digite|mande).{0,25}(?:cpf|cartao|senha|token|cvv)|"
+    if re.search(r"(?<!nao )(?<!nunca )(?:envie|informe|digite|mande).{0,25}(?:cpf|cartao|senha|token|cvv)|"
                  r"(?:reserva|cancelamento)\s+(?:confirmad|realizad)|reservei|cancelei|"
                  r"(?:cupom|50\s*%)|sinal.{0,30}(?:cinquenta|metade)|"
                  r"(?:cancelamento|cancelar).{0,70}(?:12|2)\s*(?:horas|h\b)|"
@@ -99,7 +99,8 @@ def supported_answer(answer: str, cited: tuple[Unit, ...], *, question: str = ""
             if re.search(r"(?:multa|cobranca|taxa).{0,30}(?:\d|alem do sinal)", clause):
                 if not re.search(r"(?:nao ha|nao existe|nao cobramos|nenhuma|sem)\s+(?:multa|cobranca|taxa)", clause):
                     return False
-    evidence = normalize(" ".join(unit["texto"] for unit in cited))
+    evidence = normalize(" ".join(' '.join(unit[key] for key in ('texto','titulo','versao','atualizado_em'))
+                                  for unit in cited))
     # Pode repetir horário fornecido pelo usuário; isso não autoriza reaproveitar
     # seus números como preços, percentuais ou prazos inventados.
     numerical_text = value

@@ -4,6 +4,7 @@ Assistente em português com RAG lexical local, Amazon Bedrock Converse e Telegr
 
 **Bot:** [@QuerQueEuBot](https://t.me/QuerQueEuBot). Envie `/start` ou `/ajuda`.
 Use **“me informe”** ou `/informe` para um panorama da arena. **“Me aconselhe”** ou `/aconselhe` inicia cinco perguntas com botões: modalidade, grupo, objetivo, experiência e período. A CLI oferece as mesmas perguntas numeradas no loop interativo.
+Use **“me ajude”** ou `/assuntos` para escolher um dos dez assuntos e explorar **47 perguntas guiadas**, derivadas de todas as seções originais vigentes e das atualizações confirmadas. A explicação usa apenas a seção selecionada e as atualizações aplicáveis, com o mesmo gerador e a mesma validação de citações. Os botões também aparecem em `/start` e `/informe`; documentos obsoletos e trechos contaminados do FAQ ficam excluídos.
 
 A matriz `MATRIX_AXES`, em `src/concierge.py`, possui forma **5 × 5 × 5 × 5 × 5**: 3.125 perfis possíveis e **2.560 cenários editoriais distintos** no JSON, cinco vezes os 512 iniciais. São sugestões de organização recuperadas por relevância; não são novos fatos comerciais ou respostas garantidas. O questionário não faz avaliação médica/psicológica nem confirma reservas.
 

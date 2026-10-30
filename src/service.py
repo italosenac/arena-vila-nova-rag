@@ -41,6 +41,29 @@ class Assistant:
         if not hits:
             return Answer(NO_DATA, "NAO_CONSTA", stage="busca")
         context = tuple(hit.unit for hit in hits)
+        return self._generate(question,context)
+
+    def explicar(self, source_id: str) -> Answer:
+        """Seleção estruturada pelo menu: evidência validada, mesmo gerador e validador."""
+        from .knowledge import SOURCES, OWNER_SOURCE
+        unit = next((u for u in self.retriever.units if u['id']==source_id
+                     and u['fonte'] in {*SOURCES,OWNER_SOURCE}),None)
+        if unit is None:
+            return Answer(NO_DATA,'NAO_CONSTA',stage='busca')
+        if unit['secao']=='Panorama da arena':
+            return self.responder('/informe')
+        context=[unit]
+        if unit['fonte']=='03-reservas-e-cancelamento.md' and unit['secao']=='Como reservar':
+            context.extend(u for u in self.retriever.units if u['fonte']==OWNER_SOURCE
+                           and u['secao']=='Nova reserva com antecedência mínima')
+        question=(f"Na Arena Vila Nova, o que está confirmado sobre {unit['secao']} do assunto {unit['titulo']}? "
+                  "Apresente os fatos do trecho, incluindo as opções por modalidade quando existirem. "
+                  "Se algum detalhe não está confirmado, diferencie-o dos fatos conhecidos; não invente esse detalhe.")
+        if unit['secao']=='Nova reserva com antecedência mínima':
+            question='Qual é a antecedência mínima atual para pedir uma nova reserva e por quais canais? Resuma em palavras próprias.'
+        return self._generate(question,tuple(context))
+
+    def _generate(self, question: str, context: tuple) -> Answer:
         try:
             result = self.generator.generate(question=question, context=context)
         except Exception:

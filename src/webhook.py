@@ -11,12 +11,14 @@ from typing import Callable
 from .policies import ERROR
 from .service import Assistant, build_service
 from .concierge import (QUESTIONS, decode_choice, keyboard, question_text,
-                        recommendation_question, wants_advice)
+                        recommendation_question, wants_advice, wants_overview)
+from .topics import topic_buttons, topic_prompt, decode_topic, sections, wants_topics
 
 HELP = ("Sou o assistente da Arena Vila Nova. Pergunte sobre horários, preços e regras. "
         "Não faço reservas nem cancelamentos. Não envie dados pessoais, cartão ou senhas. "
         "Use /informe para um panorama da arena e /aconselhe para escolher uma pelada "
         "com cinco perguntas sobre suas preferências. Também converso sobre esportes e organização do grupo. "
+        "Use /assuntos ou diga ‘me ajude’ para perguntas guiadas sobre toda a base. "
         "Use /ajuda para ver esta orientação.")
 MAX_BODY = 16384
 
@@ -136,6 +138,21 @@ def handle_event(event: dict, *, secret_provider: Callable[[], str],
                     or message_id <= 0 or type(sender.get('id')) is not int or sender['id'] != chat_id):
                 return response(400)
             try:
+                if isinstance(callback.get('data'),str) and callback['data'].startswith('n:'):
+                    topic,section=decode_topic(callback['data'],chat_id,expected)
+                    if section==0:
+                        answer=topic_prompt(topic)
+                        markup=topic_buttons(topic,chat_id,expected)
+                    else:
+                        selected=sections(topic)[section-1]
+                        try:
+                            answer=present_answer(service_factory().explicar(selected['unit']['id']).text)
+                        except Exception:
+                            answer=present_answer(ERROR)
+                        answer+='\n\nQuer entender outro ponto? Escolha abaixo ou use /aconselhe para planejar seu jogo.'
+                        markup=topic_buttons(None,chat_id,expected)
+                    return response(200,{'method':'editMessageText','chat_id':chat_id,'message_id':message_id,
+                        'text':answer,'reply_markup':markup,'link_preview_options':{'is_disabled':True}})
                 choices = decode_choice(callback.get('data'),chat_id,expected)
             except ValueError:
                 return response(200,{'method':'sendMessage','chat_id':chat_id,
@@ -170,6 +187,9 @@ def handle_event(event: dict, *, secret_provider: Callable[[], str],
         elif wants_advice(text):
             return response(200,{'method':'sendMessage','chat_id':chat_id,'text':question_text(()),
                                  'reply_markup':keyboard((),chat_id,expected)})
+        elif wants_topics(text):
+            return response(200,{'method':'sendMessage','chat_id':chat_id,'text':topic_prompt(None),
+                                 'reply_markup':topic_buttons(None,chat_id,expected)})
         elif text.strip().split(" ",1)[0].split("@",1)[0] in {"/start","/ajuda","/help"}:
             answer = HELP
         elif text.startswith("/") and text.strip() != '/informe':
@@ -179,8 +199,11 @@ def handle_event(event: dict, *, secret_provider: Callable[[], str],
                 answer = service_factory().responder(text).text
             except Exception:
                 answer = ERROR
-        return response(200,{"method":"sendMessage","chat_id":chat_id,"text":present_answer(answer),
-                             "link_preview_options":{"is_disabled":True}})
+        payload={"method":"sendMessage","chat_id":chat_id,"text":present_answer(answer),
+                 "link_preview_options":{"is_disabled":True}}
+        if isinstance(text,str) and (text.strip().split(' ',1)[0].split('@',1)[0] in {'/start','/ajuda','/help'} or wants_overview(text)):
+            payload['reply_markup']=topic_buttons(None,chat_id,expected)
+        return response(200,payload)
     except (ValueError, TypeError, AttributeError, KeyError, UnicodeError, RecursionError):
         return response(400)
 

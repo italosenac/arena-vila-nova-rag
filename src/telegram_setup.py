@@ -45,7 +45,8 @@ def configure(*, token: str, url: str, secret: str, call=telegram_call) -> dict:
     call(token,"setMyCommands",{"commands":[{"command":"start","description":"Iniciar atendimento"},
                                            {"command":"ajuda","description":"Orientações e privacidade"},
                                            {"command":"informe","description":"Panorama da Arena Vila Nova"},
-                                           {"command":"aconselhe","description":"Questionário e sugestão de pelada"}]})
+                                           {"command":"aconselhe","description":"Questionário e sugestão de pelada"},
+                                           {"command":"assuntos","description":"Perguntas guiadas sobre toda a arena"}]})
     return {"username":me["username"],"url":"https://t.me/"+me["username"],"webhook_url":info["url"],
             "pending_update_count":info.get("pending_update_count"),"last_error_date":info.get("last_error_date"),
             "verified":True}
