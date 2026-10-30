@@ -1,5 +1,6 @@
 """O cliente escolhe reserva ou consulta antes das opções gerais."""
 import json
+import pytest
 from unittest.mock import Mock
 from src.webhook import handle_event
 
@@ -84,3 +85,11 @@ def test_specific_question_after_declining_is_answered_without_forcing_other_men
     body=message(question,service)
     service.responder.assert_called_once_with(question)
     assert 'R$ 120' in body['text'] and 'Menu de reservas' not in body['text']
+
+@pytest.mark.parametrize('data,command',[
+    ('f:1:r:'+16*'0','/menu'),('n:1:0:0:'+16*'0','/assuntos'),('q:1:0:'+16*'0','/aconselhe'),
+])
+def test_expired_choices_return_to_the_same_flow(data,command):
+    body=call({'callback_query':{'id':'f','data':data,'from':{'id':1},
+        'message':{'message_id':10,'chat':{'id':1,'type':'private'}}}},Mock())
+    assert command in body['text']

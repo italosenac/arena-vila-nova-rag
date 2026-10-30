@@ -169,8 +169,11 @@ def handle_event(event: dict, *, secret_provider: Callable[[], str],
                         'text':answer,'reply_markup':markup,'link_preview_options':{'is_disabled':True}})
                 choices = decode_choice(callback.get('data'),chat_id,expected)
             except ValueError:
+                data=callback.get('data','')
+                restart=('/menu' if isinstance(data,str) and data.startswith('f:') else
+                         '/assuntos' if isinstance(data,str) and data.startswith('n:') else '/aconselhe')
                 return response(200,{'method':'sendMessage','chat_id':chat_id,
-                    'text':'Vamos bilolar de novo: essa opção expirou ou é inválida. Use /aconselhe para recomeçar.'})
+                    'text':f'Vamos bilolar de novo: essa opção expirou ou é inválida. Use {restart} para retomar este atendimento.'})
             if len(choices) < len(QUESTIONS):
                 return response(200,{'method':'editMessageText','chat_id':chat_id,'message_id':message_id,
                     'text':question_text(choices),'reply_markup':keyboard(choices,chat_id,expected)})
