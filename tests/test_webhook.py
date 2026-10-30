@@ -46,17 +46,8 @@ def test_same_service_and_no_history(caplog):
     result=invoke(event(),service)
     service.responder.assert_called_once_with("Qual o sinal?")
     text=json.loads(result["body"])["text"]
-    assert "bilola" in text and text.endswith("O sinal é de 30%.")
+    assert text == "O sinal \u00e9 de 30%."
     assert not caplog.records
-
-
-@pytest.mark.parametrize("text",["/start","/ajuda","/outro",None,"Qual o sinal?"])
-def test_every_telegram_message_has_requested_style(text):
-    service=Mock()
-    service.responder.return_value=Answer("Resposta de teste.","RESPONDER")
-    data=event(text)
-    body=json.loads(invoke(data,service)["body"])
-    assert "bilola" in body["text"]
 
 
 @pytest.mark.parametrize("mutation,code", [("method",405),("path",404),("headers",403),

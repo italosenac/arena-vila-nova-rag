@@ -1,51 +1,21 @@
 """HTTP API v2 -> Telegram inline -> serviço compartilhado, sem histórico ou logs."""
 import base64
 import hmac
-import hashlib
 import json
 import os
 import re
 import time
 from typing import Callable
-from datetime import datetime
-from .tone import greet
 
 from .policies import ERROR
 from .service import Assistant, build_service
-from .concierge import (QUESTIONS, decode_choice, keyboard, question_text,
-                        recommendation_question, wants_advice, wants_overview)
-from .topics import topic_buttons, topic_prompt, decode_topic, sections, wants_topics, related_buttons
-from .flows import route_intent,flow_view,decode_flow
+from .conversation import PAGES, QUESTIONS, clarify, decode_callback, markup
+from .policies import triage
 
-HELP = ("Sou o assistente da Arena Vila Nova. Pergunte sobre horários, preços e regras. "
-        "Não faço reservas nem cancelamentos. Não envie dados pessoais, cartão ou senhas. "
-        "Use /informe para um panorama da arena e /aconselhe para escolher uma pelada "
-        "com cinco perguntas sobre suas preferências. Também converso sobre esportes e organização do grupo. "
-        "Use /assuntos ou diga ‘me ajude’ para perguntas guiadas sobre toda a arena. "
-        "Use /ajuda para ver esta orientação.")
+HELP = ("Sou o assistente da Arena Vila Nova. Pergunte sobre quadras, hor\u00e1rios, pre\u00e7os e regras. "
+        "N\u00e3o fa\u00e7o reservas nem cancelamentos. N\u00e3o envie dados pessoais, cart\u00e3o ou senhas. "
+        "Use /ajuda ou envie sua pergunta livremente.")
 MAX_BODY = 16384
-
-
-def present_answer(text: str, *, now: datetime | None = None) -> str:
-    """Tom solicitado para o Telegram, aplicado após a validação factual."""
-    openings = (
-        "Você bilola mais que bola em mil rachões: ",
-        "Entre um saque e outro, a gente bilola: ",
-        "Quando o chute visita a lua, a gente bilola sem drama: ",
-        "Se a manchete saiu de férias, a gente bilola com calma: ",
-        "Do primeiro saque à última resenha, você bilola com a gente: ",
-        "Depois de correr por um time inteiro, você bilola por aqui: ",
-        "Entre o gole d’água e o próximo set, a gente bilola: ",
-        "Se a bola foi dar uma voltinha fora da linha, a gente bilola: ",
-        "Estamos bilolando no ritmo da pelada: ",
-        "No vôlei, bilolamos fortemente — e o recado é este: ",
-        "Quando saímos para bilolar, até a resenha entra em quadra: ",
-        "Entre a pelada e a night, a gente bilola com calma: ",
-        "Depois da night, bilolamos no modo recuperação: ",
-        "No aquecimento, bilolamos como se a final fosse hoje: ",
-    )
-    choice = hashlib.sha256(text.encode("utf-8")).digest()[0] % len(openings)
-    return greet(openings[choice] + text,now=now)
 
 
 class ParameterSecret:
@@ -76,8 +46,6 @@ class ParameterSecret:
 
 
 def response(code: int, body: dict | None = None) -> dict:
-    if body and body.get('method') in {'sendMessage','editMessageText'} and isinstance(body.get('text'),str):
-        body = {**body,'text':greet(body['text'])}
     return {"statusCode":code, "headers":{"content-type":"application/json; charset=utf-8", "cache-control":"no-store"},
             "body":json.dumps(body or {}, ensure_ascii=False)}
 
@@ -143,48 +111,21 @@ def handle_event(event: dict, *, secret_provider: Callable[[], str],
                     or message_id <= 0 or type(sender.get('id')) is not int or sender['id'] != chat_id):
                 return response(400)
             try:
-                if isinstance(callback.get('data'),str) and callback['data'].startswith('f:'):
-                    action=decode_flow(callback['data'],chat_id,expected)
-                    view=flow_view(action,chat_id,expected,service_factory=service_factory)
-                    return response(200,{'method':'editMessageText','chat_id':chat_id,'message_id':message_id,
-                        **view,'link_preview_options':{'is_disabled':True}})
-                if isinstance(callback.get('data'),str) and callback['data'].startswith('n:'):
-                    topic,section=decode_topic(callback['data'],chat_id,expected)
-                    if section==0:
-                        answer=topic_prompt(topic)
-                        markup=topic_buttons(topic,chat_id,expected)
-                    else:
-                        selected=sections(topic)[section-1]
-                        try:
-                            result=service_factory().explicar(selected['unit']['id'])
-                            answer=present_answer(result.text)
-                            ids=result.source_ids or (selected['unit']['id'],)
-                        except Exception:
-                            answer=present_answer(ERROR)
-                            ids=(selected['unit']['id'],)
-                        markup=related_buttons(ids,chat_id,expected) or {'inline_keyboard':[]}
-                        if markup['inline_keyboard']:
-                            answer+='\n\nSe quiser aprofundar este assunto:'
-                    return response(200,{'method':'editMessageText','chat_id':chat_id,'message_id':message_id,
-                        'text':answer,'reply_markup':markup,'link_preview_options':{'is_disabled':True}})
-                choices = decode_choice(callback.get('data'),chat_id,expected)
+                action = decode_callback(callback.get('data'), chat_id, expected)
             except ValueError:
-                data=callback.get('data','')
-                restart=('/menu' if isinstance(data,str) and data.startswith('f:') else
-                         '/assuntos' if isinstance(data,str) and data.startswith('n:') else '/aconselhe')
-                return response(200,{'method':'sendMessage','chat_id':chat_id,
-                    'text':f'Vamos bilolar de novo: essa opção expirou ou é inválida. Use {restart} para retomar este atendimento.'})
-            if len(choices) < len(QUESTIONS):
-                return response(200,{'method':'editMessageText','chat_id':chat_id,'message_id':message_id,
-                    'text':question_text(choices),'reply_markup':keyboard(choices,chat_id,expected)})
-            try:
-                answer = service_factory().responder(recommendation_question(choices)).text
-            except Exception:
-                answer = ERROR
-            profile = ' / '.join(options[c] for (_,options),c in zip(QUESTIONS,choices))
-            return response(200,{'method':'editMessageText','chat_id':chat_id,'message_id':message_id,
-                'text':present_answer('Seu perfil esportivo: '+profile+'.\n'+answer),
-                'reply_markup':{'inline_keyboard':[]},'link_preview_options':{'is_disabled':True}})
+                return response(200, {'method':'sendMessage', 'chat_id':chat_id,
+                    'text':'Essa op\u00e7\u00e3o n\u00e3o est\u00e1 dispon\u00edvel. Use /ajuda ou envie sua pergunta.'})
+            if action in PAGES:
+                view = PAGES[action]
+                payload = {'text':view.text, 'reply_markup':markup(view,chat_id,expected)}
+            else:
+                try:
+                    answer = service_factory().responder(QUESTIONS[action]).text
+                except Exception:
+                    answer = ERROR
+                payload = {'text':answer, 'reply_markup':{'inline_keyboard':[]}}
+            return response(200, {'method':'editMessageText','chat_id':chat_id,
+                'message_id':message_id, **payload, 'link_preview_options':{'is_disabled':True}})
         message = update.get("message")
         if message is None:
             return response(200)
@@ -199,38 +140,30 @@ def handle_event(event: dict, *, secret_provider: Callable[[], str],
         text = message.get("text")
         if text is not None and not isinstance(text, str):
             return response(400)
-        result = None
-        action=route_intent(text) if isinstance(text,str) else None
-        if action:
-            view=flow_view(action,chat_id,expected,service_factory=service_factory)
-            return response(200,{'method':'sendMessage','chat_id':chat_id,**view,
-                'link_preview_options':{'is_disabled':True}})
+        view = None
+        command = text.strip().split(' ',1)[0].split('@',1)[0] if isinstance(text,str) else ''
         if text is None:
             answer = "Envie uma pergunta em texto, sem documentos ou dados pessoais."
-        elif wants_advice(text):
-            return response(200,{'method':'sendMessage','chat_id':chat_id,'text':question_text(()),
-                                 'reply_markup':keyboard((),chat_id,expected)})
-        elif wants_topics(text):
-            return response(200,{'method':'sendMessage','chat_id':chat_id,'text':topic_prompt(None),
-                                 'reply_markup':topic_buttons(None,chat_id,expected)})
-        elif text.strip().split(" ",1)[0].split("@",1)[0] in {"/start","/ajuda","/help"}:
-            answer = HELP
-        elif text.startswith("/") and text.strip() != '/informe':
+        elif command in {'/start','/ajuda','/help'}:
+            greetings = ('Ol\u00e1!', 'Bem-vindo!', 'Oi!')
+            answer = (greetings[update['update_id'] % len(greetings)] + ' ' + HELP
+                      + '\n\n' + PAGES['home'].text)
+            view = PAGES['home']
+        elif text.startswith('/'):
             answer = "Use /ajuda ou envie uma pergunta sobre a Arena Vila Nova."
         else:
             try:
+                # A seguran\u00e7a precede qualquer orienta\u00e7\u00e3o de navega\u00e7\u00e3o.
+                view = clarify(text) if triage(text) is None else None
                 result = service_factory().responder(text)
                 answer = result.text
             except Exception:
                 answer = ERROR
-        payload={"method":"sendMessage","chat_id":chat_id,"text":present_answer(answer),
-                 "link_preview_options":{"is_disabled":True}}
-        if isinstance(text,str) and (text.strip().split(' ',1)[0].split('@',1)[0] in {'/start','/ajuda','/help'} or wants_overview(text)):
-            payload['reply_markup']=topic_buttons(None,chat_id,expected)
-        elif result is not None and result.status=='RESPONDER':
-            markup=related_buttons(result.source_ids,chat_id,expected)
-            if markup:
-                payload['reply_markup']=markup
+                view = None
+        payload = {'method':'sendMessage','chat_id':chat_id,'text':answer,
+                   'link_preview_options':{'is_disabled':True}}
+        if view and view.choices:
+            payload['reply_markup'] = markup(view,chat_id,expected)
         return response(200,payload)
     except (ValueError, TypeError, AttributeError, KeyError, UnicodeError, RecursionError):
         return response(400)

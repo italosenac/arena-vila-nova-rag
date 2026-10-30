@@ -89,15 +89,6 @@ def build_base(source_dir: Path) -> list[Unit]:
 
 def export_base(source_dir: Path, output: Path) -> list[Unit]:
     units = build_base(source_dir)
-    # Atualizar as dez fontes originais preserva os suplementos já revisados.
-    if output.is_file():
-        from .knowledge import load_base, SUPPLEMENT_SOURCES
-        units.extend(u for u in load_base(output) if u['fonte'] in SUPPLEMENT_SOURCES)
-        if any(u['fonte'] == '10-atualizacao-da-recepcao.md' for u in units):
-            for unit in units:
-                if unit['fonte'] == '03-reservas-e-cancelamento.md' and unit['secao'] == 'Como reservar':
-                    unit['texto'] = unit['texto'].replace(' e com no mínimo 2 horas','')
-        validate_base(units)
     # A validação termina antes de tocar no artefato anterior.
     output.parent.mkdir(parents=True, exist_ok=True)
     temporary = output.with_suffix(output.suffix + ".tmp")

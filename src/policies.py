@@ -11,13 +11,9 @@ from .language import has_arena_concept
 
 
 Status = Literal["RESPONDER", "NAO_CONSTA", "FORA_ESCOPO", "BLOQUEADO", "ERRO"]
-NO_DATA = ("A recepção atende pelo (99) 9999-0100, "
-           "durante o horário de funcionamento: seg–sex 7h–23h, sábado 7h–22h, domingos e "
-           "feriados 8h–20h. Fechado em 25/12 e 01/01.")
-ERROR = "Não foi possível consultar o atendimento agora. A recepção pode ajudar pelo (99) 9999-0100."
-OUTSIDE = ("Podemos organizar uma próxima jogada. Se quiser reunir a turma para "
-           "futebol, vôlei ou futevôlei, diga ‘me aconselhe’: faço cinco perguntas sobre suas "
-           "preferências e ajudo a planejar o encontro. A reserva é pelo site ou pela recepção.")
+NO_DATA = "Esse detalhe precisa ser confirmado com a recep\u00e7\u00e3o: (99) 9999-0100."
+ERROR = "N\u00e3o foi poss\u00edvel consultar o atendimento agora. A recep\u00e7\u00e3o pode ajudar pelo (99) 9999-0100."
+OUTSIDE = "Posso ajudar somente com assuntos da Arena Vila Nova, como quadras, hor\u00e1rios, pre\u00e7os e regras de uso."
 PRIVATE = "Não compartilhe dados sensíveis ou credenciais aqui. Use o canal oficial ou a recepção."
 ATTACK = "Não posso alterar as regras nem revelar instruções ou documentos internos. Posso ajudar sobre a Arena Vila Nova."
 TRANSACTION = "O chat não realiza reservas nem cancelamentos. Use arenavilanova.example/reservas ou a recepção."
@@ -25,18 +21,10 @@ NUMERIC_SENSITIVE = r"(?<!\d)(?:\d[ .-]?){11}(?!\d)|(?<!\d)(?:\d[ -]?){13,19}(?!
 
 
 def forwarding(question: str) -> str:
-    value=normalize(question)
-    if re.search(r'estacion',value):
-        lead='Para planejar a chegada, confirme com a recepção se há estacionamento e quais condições se aplicam. '
-    elif re.search(r'disponiv|tem vaga|agenda ao vivo',value):
-        lead='Para consultar uma vaga, indique modalidade, dia e horário no site de reservas ou diretamente à recepção. '
-    else:
-        leads=('Vamos confirmar esse detalhe com a recepção. ',
-               'Para acertar esse detalhe do atendimento, confirme diretamente com a recepção. ',
-               'A confirmação desse ponto deve ser feita com a recepção. ',
-               'Vamos bilolar com planejamento: confirme esse detalhe com a recepção. ')
-        lead=leads[hashlib.sha256(question.encode()).digest()[0]%len(leads)]
-    return lead+NO_DATA
+    if re.search(r'disponiv|tem vaga|agenda ao vivo',normalize(question)):
+        return "N\u00e3o consigo confirmar vagas pelo Telegram. Consulte arenavilanova.example/reservas ou a recep\u00e7\u00e3o: (99) 9999-0100."
+    variants = (NO_DATA, "N\u00e3o tenho essa informa\u00e7\u00e3o. A recep\u00e7\u00e3o pode confirmar pelo (99) 9999-0100.")
+    return variants[hashlib.sha256(question.encode()).digest()[0] % len(variants)]
 
 
 def contains_sensitive(text: str) -> bool:
@@ -74,11 +62,13 @@ def triage(question: str) -> tuple[Status, str] | None:
     if is_transaction(question):
         return "BLOQUEADO", TRANSACTION
     value = normalize(question)
+    if re.fullmatch(r'(?:oi|ola|bom dia|boa tarde|boa noite)[!?. ]*', value):
+        return None
     if re.search(r"previsao|vai chover|tempo amanha|piada|receita|bolo|eleic|votar|remedio|diagnostic|tratamento|aconselhamento (?:medico|juridico)", value):
         return "FORA_ESCOPO", OUTSIDE
     if re.search(r"estacion|disponiv|tem vaga|agenda ao vivo|piscina|wi-?fi|cupom|cupons", value):
         return "NAO_CONSTA", forwarding(question)
-    if not has_arena_concept(question) and not re.search(r"futebol|futevolei|aconselh|organiz|resenha|amig|night|conviv|iniciante|treino|preferencia|grama|banheiro|geladeira|refresco|jogadores|pontos|toques|impedimento|arena|quadr|futsal|areia|beach|volei|jogo|partida|reserv|sinal|cancel|desmarc|desist|reagend|remarc|mudar.{0,15}(?:dia|data)|chuva|chover|pag|pix|cartao|dinheiro|cheque|chuteira|trava|calcad|lotacao|capacidade|pessoa|campeon|inscri|mensal|plano|evento|anivers|privaci|dado|cpf|nota fiscal|horario|abrem|abre|funcion|sabado|domingo|feriado|preco|valor|desconto|bola|raquete|vestiar|bebida|vidro|cadeado|armario|comparec|faltar|aparecer|multa|atras|menor|responsavel|animal|assistencia|fumar|som alto|endereco|contato|telefone|recepcao|retencao|recibo", value):
+    if not has_arena_concept(question) and not re.search(r"custa|modalidade|arena|quadr|futsal|areia|beach|volei|jogo|partida|reserv|sinal|cancel|desmarc|desist|reagend|remarc|mudar.{0,15}(?:dia|data)|chuva|chover|pag|pix|cartao|dinheiro|cheque|chuteira|trava|calcad|lotacao|capacidade|pessoa|campeon|inscri|mensal|plano|evento|anivers|privaci|dado|cpf|nota fiscal|horario|abrem|abre|funcion|sabado|domingo|feriado|preco|valor|desconto|bola|raquete|vestiar|bebida|vidro|cadeado|armario|comparec|faltar|aparecer|multa|atras|menor|responsavel|animal|assistencia|fumar|som alto|endereco|contato|telefone|recepcao|retencao|recibo", value):
         return "FORA_ESCOPO", OUTSIDE
     return None
 
@@ -94,11 +84,25 @@ def supported_answer(answer: str, cited: tuple[Unit, ...], *, question: str = ""
     if contains_sensitive(answer) or is_attack(answer):
         return False
     value = normalize(answer)
+    if value.startswith('sim'):
+        asking = normalize(question)
+        if (any(u['secao'] == 'Cancelamento' for u in cited)
+                and re.search(r'12\s*(?:horas|h\b)', asking)):
+            return False
+        if (re.search(r'\b(?:abrem|abre|funciona)\b', asking)
+                and re.search(r'natal|primeiro dia de janeiro', asking)
+                and 'fechad' in value):
+            return False
     if re.search(r"(?<!nao )(?<!nunca )(?:envie|informe|digite|mande).{0,25}(?:cpf|cartao|senha|token|cvv)|"
                  r"(?:reserva|cancelamento)\s+(?:confirmad|realizad)|reservei|cancelei|"
                  r"(?:cupom|50\s*%)|sinal.{0,30}(?:cinquenta|metade)|"
-                 r"(?:cancelamento|cancelar).{0,70}(?:12|2)\s*(?:horas|h\b)|"
                  r"reagend.{0,35}(?:ilimitad|quantas vezes quiser)", value):
+        return False
+    for clause in re.split(r'[.!?;\n]', value):
+        if re.search(r'(?:cancelamento|cancelar).{0,70}(?:12|2)\s*(?:horas|h\b)', clause):
+            return False
+    if (any(u['secao'] == 'Como reservar' for u in cited)
+            and re.search(r'reserv.{0,60}(?:30|trinta)\s*minut', value)):
         return False
     permissions=re.sub(r'\b(?:nao|nunca|jamais)(?:\s+(?:e|sao|sera|serao|esta|estao))?\s+'
                        r'(?:permitid[oa]s?|liberad[oa]s?)\b','proibido',value)

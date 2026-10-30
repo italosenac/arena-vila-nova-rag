@@ -21,16 +21,6 @@ OBSOLETE_SOURCE = "03b-reservas-v1-obsoleta.md"
 POLICY_SOURCE = "03-reservas-e-cancelamento.md"
 FAQ_SOURCE = "08-faq-atendimento.md"
 FAQ_SECTIONS = {"Como pago o sinal?", "Posso levar bebidas?", "Há vestiário?"}
-OWNER_SOURCE = "10-atualizacao-da-recepcao.md"
-GUIDE_SOURCE = "11-guia-de-convivencia.md"
-SPORT_SOURCES = {
-    "https://www.fivb.com/volleyball/the-game/basic-rules/",
-    "https://www.fivb.com/wp-content/uploads/2025/02/FIVB-BeachVolleyball_Rules2025_2028-EN-v01.pdf",
-    "https://canadasoccer.com/wp-content/uploads/2026/04/FIFA_Futsal_Laws-of_the_Game_2025-2026.pdf",
-    "https://theifab.com/laws/latest/the-players/",
-    "https://theifab.com/laws/latest/the-duration-of-the-match/",
-}
-SUPPLEMENT_SOURCES = {OWNER_SOURCE:"institucional", GUIDE_SOURCE:"conversa", **{s:"esporte" for s in SPORT_SOURCES}}
 
 
 class Unit(TypedDict):
@@ -53,21 +43,14 @@ def normalize(text: str) -> str:
 
 
 def section_id(source: str, section: str) -> str:
-    if source == GUIDE_SOURCE and (match := re.match(r'Cenário (\d+) ', section)):
-        return Path(source).stem + ':cenario-' + match[1]
     slug = re.sub(r"[^a-z0-9]+", "-", normalize(section)).strip("-")
-    prefix = "esporte-" + hashlib.sha256(source.encode()).hexdigest()[:8] if source in SPORT_SOURCES else Path(source).stem
-    return prefix + ":" + slug
+    return Path(source).stem + ":" + slug
 
 
 def priority(source: str) -> int:
     """Autoridade explícita, independente do rótulo vigente do FAQ."""
     if source == FAQ_SOURCE:
         return 100
-    if source == OWNER_SOURCE:
-        return 400
-    if source in SUPPLEMENT_SOURCES:
-        return 80 if source in SPORT_SOURCES else 50
     return 300 if SOURCES[source] == "politica" else 200
 
 
@@ -91,7 +74,7 @@ def validate_base(data: object) -> list[Unit]:
                for key in keys - {"prioridade"}):
             raise ValueError("Campo textual ausente ou inválido")
         source = unit["fonte"]
-        registry = {**SOURCES, **SUPPLEMENT_SOURCES}
+        registry = SOURCES
         if source not in registry or unit["status"] != "vigente":
             raise ValueError("Fonte não autorizada ou obsoleta")
         if unit["area"] != registry[source] or type(unit["prioridade"]) is not int or unit["prioridade"] != priority(source):
@@ -119,11 +102,14 @@ def validate_base(data: object) -> list[Unit]:
             if unit["versao"] != "2.0" or unit["atualizado_em"] != "2026-08-01":
                 raise ValueError("A política oficial deve ser v2 de 01/08/2026")
             text = normalize(unit["texto"])
+            if unit["secao"] == "Como reservar" and not (
+                    "no minimo 2 horas" in text and "30 dias" in text):
+                raise ValueError("Antecedencia de reserva conflitante")
             if unit["secao"] == "Sinal" and ("30%" not in text or "50%" in text):
                 raise ValueError("Regra do sinal conflitante")
             if unit["secao"] == "Cancelamento" and ("24 horas" not in text or "12 horas" in text):
                 raise ValueError("Regra de cancelamento conflitante")
-    if not set(SOURCES) <= set(source_metadata):
+    if set(SOURCES) != set(source_metadata):
         raise ValueError("Base incompleta: falta fonte vigente")
     return data
 

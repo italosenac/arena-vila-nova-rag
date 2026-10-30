@@ -56,10 +56,10 @@ def pytest_sessionfinish(session, exitstatus):
     lines += ["", "## IDs e diagnóstico", ""]
     for row in sorted(ROWS.values(), key=lambda r: r["id"]):
         lines.append(f"- {row['id']}: {', '.join(row['ids']) or 'nenhum ID'}; {row['detail']}")
-    lines += ["", "## Pendências reais", "",
-              "- Bedrock: inferência autorizada, acesso ao modelo, formato, fidelidade e latência ainda não testados com LLM real.",
-              "- Telegram/Lambda: handlers, segredo do webhook e teste pelo aplicativo dependem da implementação das SPEC-05/06; não foram executados nesta etapa.",
-              "- Publicação/clone Git: etapa posterior; relatório e dataset original são exclusivamente locais.", ""]
+    lines += ["", "## Limites deste relatório", "",
+              "- Esta execução mede somente os testes com mocks e recuperação local.",
+              "- Bedrock real, implantação, clone e entrega no aplicativo exigem evidências separadas; este relatório não determina seu estado.",
+              "- Relatório e dataset original são exclusivamente locais.", ""]
     if history:
         lines += ["## Histórico das correções desta etapa", "", history, ""]
     path.parent.mkdir(parents=True, exist_ok=True)

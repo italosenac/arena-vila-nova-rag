@@ -1,4 +1,4 @@
-"""Único serviço de resposta compartilhável entre CLI e futuro Telegram."""
+"""Único serviço de resposta compartilhado entre CLI e Telegram."""
 
 from dataclasses import dataclass
 import re
@@ -7,7 +7,7 @@ from .knowledge import load_base, normalize
 from .llm import BedrockGenerator, Generation, Generator
 from .policies import ERROR, Status, supported_answer, triage, forwarding
 from .retriever import Retriever
-from .concierge import wants_overview, wants_advice, question_text
+from .conversation import clarify
 from .language import question_parts
 
 
@@ -25,17 +25,23 @@ class Assistant:
         self.retriever, self.generator = retriever, generator
 
     def responder(self, question: str) -> Answer:
-        if wants_overview(question):
-            panorama = next((u for u in self.retriever.units if u['fonte'] == '10-atualizacao-da-recepcao.md'
-                             and u['secao'] == 'Panorama da arena'), None)
-            if panorama:
-                return Answer(panorama['texto'], 'RESPONDER', (panorama['id'],), (panorama['fonte'],), 'panorama')
-        if wants_advice(question):
-            return Answer(question_text(())+' Na CLI, responda às opções numeradas do questionário interativo.',
-                          'RESPONDER',stage='questionario')
         decision = triage(question)
+        parts = question_parts(question)
+        # Entrada inteira passa primeiro pelas defesas, inclusive nas perguntas mistas.
+        if len(parts) > 1 and (decision is None or decision[0] != 'BLOQUEADO'):
+            supported_parts = [part for part in parts if triage(part) is None]
+            if supported_parts and len(supported_parts) < len(parts):
+                result = self.responder('; '.join(supported_parts))
+                if result.status == 'RESPONDER' and result.source_ids:
+                    return Answer(result.text + ' Sobre a outra parte da pergunta, '
+                                  'a recepção pode orientar pelo (99) 9999-0100.',
+                                  result.status, result.source_ids, result.sources, 'parcial')
+                return result
         if decision:
             return Answer(decision[1], decision[0], stage="triagem")
+        guidance = clarify(question)
+        if guidance:
+            return Answer(guidance.text, "RESPONDER", stage="esclarecimento")
         try:
             hits = self.retriever.search(question)
         except Exception:
@@ -45,26 +51,6 @@ class Assistant:
         context = tuple(hit.unit for hit in hits)
         return self._generate(question,context)
 
-    def explicar(self, source_id: str) -> Answer:
-        """Seleção estruturada pelo menu: evidência validada, mesmo gerador e validador."""
-        from .knowledge import SOURCES, OWNER_SOURCE
-        unit = next((u for u in self.retriever.units if u['id']==source_id
-                     and u['fonte'] in {*SOURCES,OWNER_SOURCE}),None)
-        if unit is None:
-            return Answer(forwarding(''),'NAO_CONSTA',stage='busca')
-        if unit['secao']=='Panorama da arena':
-            return self.responder('/informe')
-        context=[unit]
-        if unit['fonte']=='03-reservas-e-cancelamento.md' and unit['secao']=='Como reservar':
-            context.extend(u for u in self.retriever.units if u['fonte']==OWNER_SOURCE
-                           and u['secao']=='Nova reserva com antecedência mínima')
-        question=(f"Na Arena Vila Nova, o que está confirmado sobre {unit['secao']} do assunto {unit['titulo']}? "
-                  "Apresente os fatos do trecho, incluindo as opções por modalidade quando existirem. "
-                  "Se algum detalhe não está confirmado, diferencie-o dos fatos conhecidos; não invente esse detalhe.")
-        if unit['secao']=='Nova reserva com antecedência mínima':
-            question='Qual é a antecedência mínima atual para pedir uma nova reserva e por quais canais? Resuma em palavras próprias.'
-        return self._generate(question,tuple(context),check_coverage=False)
-
     def _generate(self, question: str, context: tuple, *, check_coverage: bool = True) -> Answer:
         try:
             result = self.generator.generate(question=question, context=context)
@@ -73,10 +59,10 @@ class Assistant:
             return Answer(ERROR, "ERRO", stage="geracao")
         if not isinstance(result, Generation) or result.status != "RESPONDER" or not isinstance(result.answer,str):
             return Answer(forwarding(question), "NAO_CONSTA", stage="validacao")
-        if re.search(r'base de (?:conhecimento|dados)|\b(?:na|nossa|minha) base\b|nao (?:tenho|temos|encontrei|localizei).{0,60}(?:inform|base)',
-                     normalize(result.answer)):
-            return Answer(forwarding(question),'NAO_CONSTA',stage='apresentacao')
         available = {unit["id"]: unit for unit in context}
+        if (any(source_id in result.answer for source_id in available)
+                or re.search(r'base de conhecimento|documentos? brutos?|ids? internos?', normalize(result.answer))):
+            return Answer(forwarding(question), 'NAO_CONSTA', stage='apresentacao')
         ids = result.source_ids
         if (not isinstance(ids, tuple) or not ids or not all(isinstance(value, str) for value in ids)
                 or len(ids) != len(set(ids)) or any(value not in available for value in ids)):

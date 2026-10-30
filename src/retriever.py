@@ -82,11 +82,11 @@ class Retriever:
         self.top_k, self.threshold = top_k, threshold
         self.indexes = {}
         self.word_vocabulary = set()
-        for domain in ('arena','esporte','conversa'):
-            units = tuple(u for u in self.units if (u['area'] if u['area'] in {'esporte','conversa'} else 'arena') == domain)
-            idf,vectors,vocabulary = _index(tuple(f"{u['secao']} {u['secao']} {u['titulo']} {u['texto']}" for u in units))
-            self.indexes[domain] = (units,idf,vectors)
-            self.word_vocabulary.update(vocabulary)
+        units = self.units
+        idf, vectors, vocabulary = _index(tuple(
+            f"{u['secao']} {u['secao']} {u['titulo']} {u['texto']}" for u in units))
+        self.indexes['arena'] = (units, idf, vectors)
+        self.word_vocabulary.update(vocabulary)
 
     def search(self, question: str) -> list[Hit]:
         parts=question_parts(question)
@@ -108,31 +108,11 @@ class Retriever:
         hits = []
         monthly = bool(re.search(r"mensal|plano|horario fixo", normalize(question)))
         cancellation = "cancelamento" in words
-        advice = value.startswith('aconselhe um encontro esportivo') or (bool(re.search(r'aconselh|organiz|resenha|amig|night|conviv|iniciante|treino|preferencia', value)) and not has_arena_concept(question) and not bool(re.search(r'preco|pagamento|cancel|sinal|quanto custa|capacidade|lotacao|orcamento|evento|campeonato',value)))
-        sport = bool(re.search(r'\b(?:jogadores?|pontos|sets?|toques|impedimento)\b|regra.{0,20}oficia|duracao.{0,20}(?:futebol|futsal)|medidas oficiais', value)) and not bool(re.search(r'arena|preco|custa|capacidade|lotacao|reserva',value))
-        beach = bool(re.search(r'praia|areia|beach', value))
-        domain = 'conversa' if advice else 'esporte' if sport else 'arena'
-        units,idf,vectors = self.indexes[domain]
+        units,idf,vectors = self.indexes['arena']
         query = vectorize(features(words),idf)
         for unit, vector in zip(units, vectors):
-            if (unit['fonte'] == '03-reservas-e-cancelamento.md' and unit['secao'] == 'Como reservar'
-                    and any(u['fonte'] == '10-atualizacao-da-recepcao.md' for u in units)
-                    and re.search(r'anteced|minim|30 minuto|duas horas|2 horas',value)):
-                continue  # A atualização substitui apenas a antecedência mínima da nova reserva.
-            if advice:
-                if unit['area'] != 'conversa':
-                    continue
-            elif sport:
-                if unit['area'] != 'esporte':
-                    continue
-                subject = normalize(unit['titulo']+' '+unit['fonte'])
-                if 'futsal' in value and 'futsal' not in subject:
-                    continue
-                if 'volei' in value and (('beach' in subject) != beach or 'futsal' in subject or 'theifab' in subject):
-                    continue
-                if 'futebol' in value and 'theifab' not in subject:
-                    continue
-            elif unit['area'] in {'esporte','conversa'} or unit['secao'] == 'Panorama da arena':
+            # Reposição de mensalistas não rege uma reserva avulsa em dia de chuva.
+            if unit['fonte'] == '06-planos-mensalistas.md' and not monthly and 'desconto' not in words:
                 continue
             # Elegibilidade por assunto antecede score e evita misturar plano/avulso.
             if cancellation and ((not monthly and unit["fonte"] == "06-planos-mensalistas.md") or
@@ -140,7 +120,7 @@ class Retriever:
                 continue
             score = sum(value * vector.get(key, 0) for key, value in query.items())
             section_words = set(tokens(unit['secao']))
-            if score > 0 and domain == 'arena' and section_words:
+            if score > 0 and section_words:
                 score += 0.12 * len(section_words & set(words)) / len(section_words)
             if unit["prioridade"] == 100:
                 score *= 0.65  # FAQ complementar, não autoridade por correspondência literal.

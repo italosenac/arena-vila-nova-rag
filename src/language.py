@@ -38,10 +38,8 @@ def has_arena_concept(question: str) -> bool:
 
 def question_parts(question: str) -> tuple[str,...]:
     """Só decompor cláusulas com conteúdo, sem separar 'Pix e cartão'."""
-    if normalize(question).startswith('aconselhe um encontro esportivo'):
-        return (question,)
     parts=re.split(r'[?;]|\be (?=(?:posso |jogar |usar |levar |como |quanto |qual |preciso |se |o que |tem |vocês ))',question,flags=re.I)
-    substantive=tuple(p.strip() for p in parts if len(re.findall(r'\w+',p))>=3)
+    substantive=tuple(p.strip() for p in parts if len(re.findall(r'\w+',p))>=2)
     if len(substantive)<=1:
         return (question,)
     explicit=r'sinal|pagamento|pix|dinheiro|cartao|chuteira|calca|tenis|menor|plano|mensal|evento|anivers|campeon|dados|reserva|volei|futebol|futsal|areia|chuva|armario|cadeado|bebida|vidro'
