@@ -21,6 +21,7 @@ def make_retriever():
     ("Se eu faltar e não avisar, pago mais alguma multa?", "03-reservas-e-cancelamento.md", "Não comparecimento"),
     ("Posso mudar o dia da partida? Quantas vezes?", "03-reservas-e-cancelamento.md", "Reagendamento"),
     ("Qual a lotação máxima das quadras de areia?", "02-quadras-e-precos.md", "Capacidade"),
+    ("Quanto custa futsal quarta às 19h?", "02-quadras-e-precos.md", "Tabela de preços por hora"),
     ("Como funciona o pagamento mensalista?", "06-planos-mensalistas.md", "Condições"),
     ("E se chover forte durante o jogo na areia?", "03-reservas-e-cancelamento.md", "Chuva (apenas quadras de areia)"),
 ])
@@ -163,3 +164,4 @@ def test_question_time_does_not_authorize_invented_price():
     from src.policies import supported_answer
     price = tuple(u for u in load_base() if u["secao"] == "Tabela de preços por hora")
     assert not supported_answer("O preço é R$ 19.", price, question="Futsal na quarta às 19h?")
+    assert supported_answer("R$ 160,00", price, question="Futsal na quarta às 19h?")

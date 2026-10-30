@@ -8,13 +8,14 @@ import re
 from .knowledge import Unit, normalize, validate_base
 
 
-STOP = set("a o as os de da do das dos e ou em no na nos nas para por com um uma que se ao ate qual quais como posso voces me eu meu minha tem quanto custa dia jogo partida fazer isso".split())
+STOP = set("a o as os de da do das dos e ou em no na nos nas para por com um uma que se ao ate qual quais como posso voces me eu meu minha tem quanto dia jogo partida fazer isso".split())
 SYNONYMS = {
     "cancelar": "cancelamento", "cancele": "cancelamento", "desmarcar": "cancelamento",
     "desistir": "cancelamento", "desmarco": "cancelamento",
     "remarcar": "reagendamento", "reagendar": "reagendamento", "remarcacao": "reagendamento",
     "faltar": "comparecimento", "aparecer": "comparecimento", "comparecer": "comparecimento",
     "valor": "preco", "valores": "preco", "precos": "preco",
+    "custa": "preco", "custam": "preco", "custo": "preco",
     "lotacao": "capacidade", "cabem": "capacidade", "pessoas": "pessoa",
     "chover": "chuva", "chovendo": "chuva", "beach": "areia",
     "pagar": "pagamento", "pago": "pagamento", "pagamentos": "pagamento",

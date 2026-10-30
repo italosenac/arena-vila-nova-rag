@@ -61,6 +61,19 @@ def test_truncation_is_not_accepted():
         BedrockGenerator(Settings(model_id="ficticio"), client=client).generate(question="Qual o sinal?", context=context())
 
 
+def test_single_json_fence_is_supported_without_accepting_extra_text():
+    from src.config import Settings
+    from src.llm import BedrockGenerator
+    units=context()
+    raw=json.dumps({"answer":"O sinal é de 30%.","source_ids":[units[0]["id"]],"status":"RESPONDER"})
+    client=Mock()
+    client.converse.return_value=sdk_response("```json\n"+raw+"\n```")
+    generator=BedrockGenerator(Settings(model_id="ficticio"),client=client)
+    assert generator.generate(question="Qual o sinal?",context=units).answer=="O sinal é de 30%."
+    client.converse.return_value=sdk_response("texto extra\n```json\n"+raw+"\n```")
+    with pytest.raises(ValueError): generator.generate(question="Qual o sinal?",context=units)
+
+
 def test_missing_model_never_creates_client(monkeypatch):
     from src.config import Settings
     from src.llm import BedrockGenerator, ModelUnavailable

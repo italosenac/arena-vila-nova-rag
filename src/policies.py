@@ -1,6 +1,7 @@
 """Triagem determinística e verificação conservadora da fundamentação."""
 
 import re
+from decimal import Decimal
 from typing import Literal
 
 from .knowledge import Unit, forbidden_content, normalize
@@ -102,7 +103,9 @@ def supported_answer(answer: str, cited: tuple[Unit, ...], *, question: str = ""
     numerical_text = value
     for time in re.findall(r"\b\d{1,2}(?:h(?:\d{2})?|:\d{2})\b", normalize(question)):
         numerical_text = re.sub(r"\b" + re.escape(time) + r"\b", "", numerical_text)
-    if not set(re.findall(r"\d+(?:[.,]\d+)?", numerical_text)) <= set(re.findall(r"\d+(?:[.,]\d+)?", evidence)):
+    def numbers(text):
+        return {Decimal(n.replace(",", ".")) for n in re.findall(r"\d+(?:[.,]\d+)?", text)}
+    if not numbers(numerical_text) <= numbers(evidence):
         return False
     if any(answer.strip() == unit["texto"].strip() and len(answer) > 300 for unit in cited):
         return False  # Evitar despejar documento/trecho longo como resposta ao cliente.

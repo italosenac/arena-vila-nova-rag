@@ -69,4 +69,4 @@ def test_only_planned_services_no_implicit_artifact_or_secret_creation():
     assert RESOURCES["BotFunction"]["Properties"]["Code"] == {
         "S3Bucket": {"Ref": "ArtifactBucket"}, "S3Key": {"Ref": "ArtifactKey"},
     }
-    assert TEMPLATE["Parameters"]["BedrockModelId"]["AllowedValues"] == ["mistral.ministral-3-3b-instruct"]
+    assert TEMPLATE["Parameters"]["BedrockModelId"]["AllowedValues"] == ["openai.gpt-oss-20b-1:0"]

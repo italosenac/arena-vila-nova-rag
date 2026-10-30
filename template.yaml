@@ -1,6 +1,9 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Arena Vila Nova - planned HTTP webhook and regional Bedrock runtime
-# Planning only. SPEC-05 handler and approved artifact/secret must exist before deploy.
+Description: Arena Vila Nova - HTTP Telegram webhook and regional Bedrock runtime
+Metadata:
+  AWSToolsMetrics:
+    AWSAgentToolkit: aws-cloudformation@3
+# Secret and reviewed artifact must exist before deploy; neither contains a bot token.
 # Package only src/ and data/base.json plus runtime dependencies, never the workspace.
 Parameters:
   ArtifactBucket:
@@ -13,8 +16,8 @@ Parameters:
     AllowedPattern: '[A-Za-z0-9/_.-]+\.zip'
   BedrockModelId:
     Type: String
-    Default: mistral.ministral-3-3b-instruct
-    AllowedValues: [mistral.ministral-3-3b-instruct]
+    Default: openai.gpt-oss-20b-1:0
+    AllowedValues: ['openai.gpt-oss-20b-1:0']
   WebhookSecretParameter:
     Type: String
     Default: /arena-vila-nova/webhook-secret
@@ -85,7 +88,7 @@ Resources:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Sub '${AWS::StackName}-bot'
-      Description: Arena informational webhook; requires SPEC-05 handler
+      Description: Arena informational webhook with header authentication and local JSON RAG
       Runtime: python3.12
       Architectures: [x86_64]
       Handler: src.webhook.lambda_handler
@@ -130,7 +133,7 @@ Resources:
     Properties:
       ApiId: !Ref HttpApi
       RouteKey: POST /telegram
-      # Telegram cannot use IAM auth: handler MUST check secret before parsing body.
+      # Telegram cannot use IAM auth: handler checks secret before parsing body.
       AuthorizationType: NONE
       Target: !Sub 'integrations/${WebhookIntegration}'
   HttpStage:
